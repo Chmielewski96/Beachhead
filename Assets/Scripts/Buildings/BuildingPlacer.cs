@@ -96,14 +96,60 @@ private void Update()
         }
     }
 
-    public void StartPlacing(BuildingData data)
+public void StartPlacing(BuildingData data)
     {
         CancelPlacement();
 
         currentData = data;
         ghostYRotation = 0f;
         ghost = Instantiate(data.ghostPrefab);
-        ghostRenderers = ghost.GetComponentsInChildren<Renderer>();
+        ghostRenderers = GetTintableRenderers(ghost);
+        ApplyRangeRingScale(ghost);
+    }
+
+    /// <summary>
+    /// All renderers under the ghost EXCEPT anything on/under "RangeRing" -
+    /// the ring keeps its own material and must not be stomped by the
+    /// green/red validity tint.
+    /// </summary>
+    private Renderer[] GetTintableRenderers(GameObject ghostInstance)
+    {
+        Renderer[] all = ghostInstance.GetComponentsInChildren<Renderer>();
+        var tintable = new System.Collections.Generic.List<Renderer>(all.Length);
+
+        foreach (Renderer r in all)
+        {
+            bool underRangeRing = false;
+            for (Transform t = r.transform; t != null && t != ghostInstance.transform; t = t.parent)
+            {
+                if (t.name == "RangeRing")
+                {
+                    underRangeRing = true;
+                    break;
+                }
+            }
+
+            if (!underRangeRing)
+                tintable.Add(r);
+        }
+
+        return tintable.ToArray();
+    }
+
+    /// <summary>
+    /// If the building being placed is a tower, scale the ghost's "RangeRing"
+    /// child (a flat disc) to the tower's actual range from its data - so the
+    /// preview ring can never drift out of sync with the stats. Non-tower
+    /// buildings (or ghosts without a ring) are silently unaffected.
+    /// </summary>
+    private void ApplyRangeRingScale(GameObject ghostInstance)
+    {
+        if (currentData is TowerData towerData)
+        {
+            Transform ring = ghostInstance.transform.Find("RangeRing");
+            if (ring != null)
+                ring.localScale = new Vector3(towerData.range * 2f, ring.localScale.y, towerData.range * 2f);
+        }
     }
 
 public void CancelPlacement()
@@ -248,8 +294,9 @@ private void TintGhost(Color color)
         while (lineGhosts.Count < lineCells.Count)
         {
             GameObject g = Instantiate(currentData.ghostPrefab);
+            ApplyRangeRingScale(g);
             lineGhosts.Add(g);
-            lineGhostRenderers.Add(g.GetComponentsInChildren<Renderer>());
+            lineGhostRenderers.Add(GetTintableRenderers(g));
         }
         while (lineGhosts.Count > lineCells.Count)
         {
@@ -284,8 +331,15 @@ private void TintGhost(Color color)
             Quaternion rotation = Quaternion.Euler(0f, ghostYRotation, 0f);
             for (int i = 0; i < lineCells.Count; i++)
             {
-                if (lineCellValid[i])
-                    Instantiate(currentData.prefab, lineCells[i], rotation);
+                if (!lineCellValid[i])
+                    continue;
+
+                // Pay per segment; when the shells run out, place what was
+                // affordable and stop - a partial wall is better than none.
+                if (!TrySpendFor(currentData))
+                    break;
+
+                Instantiate(currentData.prefab, lineCells[i], rotation);
             }
             ExitLineDrag();
         }
@@ -335,9 +389,21 @@ private void HandlePlacementInput()
             }
             else if (isValid)
             {
-                Instantiate(currentData.prefab, ghost.transform.position, ghost.transform.rotation);
+                if (TrySpendFor(currentData))
+                    Instantiate(currentData.prefab, ghost.transform.position, ghost.transform.rotation);
                 // Placement mode persists - right-click or Esc to exit.
+                // A refused spend fires ResourceManager.OnSpendFailed, which
+                // the shell counter turns into a red flash - no coupling here.
             }
         }
     }
+
+private bool TrySpendFor(BuildingData data)
+    {
+        if (ResourceManager.Instance == null)
+            return true; // no economy in the scene - build for free (early testing)
+
+        return ResourceManager.Instance.TrySpend(data.shellCost);
+    }
+
 }

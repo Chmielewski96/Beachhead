@@ -176,6 +176,7 @@ MonoBehaviour:
     m_Bits: 128
   blockedGapTolerance: 2.5
   chaseLeashRadius: 6
+  blockerSearchRadius: 3
   damage: 5
   attackRange: 1.2
   attackCooldown: 1

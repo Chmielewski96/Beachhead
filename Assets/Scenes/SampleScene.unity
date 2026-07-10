@@ -228,6 +228,7 @@ MonoBehaviour:
   footprintMargin: 0.05
   debugBuildings:
   - {fileID: 11400000, guid: b7760c35e3d1d40f5b64928b1192f09f, type: 2}
+  - {fileID: 11400000, guid: eecf7bd5c2a0c4b44b32a0af41a0d90e, type: 2}
 --- !u!4 &100449655
 Transform:
   m_ObjectHideFlags: 0

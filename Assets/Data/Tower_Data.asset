@@ -1,0 +1,24 @@
+%YAML 1.1
+%TAG !u! tag:unity3d.com,2011:
+--- !u!114 &11400000
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 0}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 3b0077f2017f84f789bddf6d66c8181d, type: 3}
+  m_Name: Tower_Data
+  m_EditorClassIdentifier: Assembly-CSharp::TowerData
+  buildingName: Tower
+  prefab: {fileID: 7956237830995750458, guid: ebeb76b8807cf4a1183964db92c94713, type: 3}
+  ghostPrefab: {fileID: 5762602761017737784, guid: 12272ca85f25342169d7e34f7cf9593f, type: 3}
+  shellCost: 30
+  footprint: {x: 2, y: 2}
+  range: 10
+  damage: 10
+  fireCooldown: 1
+  projectilePrefab: {fileID: 285364894546975700, guid: 4fc439eb9ab65403dbb822d3e370fb0c, type: 3}
+  projectileSpeed: 15

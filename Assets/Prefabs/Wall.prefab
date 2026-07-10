@@ -9,6 +9,9 @@ GameObject:
   serializedVersion: 6
   m_Component:
   - component: {fileID: 7450549596855868555}
+  - component: {fileID: 3756010382912277273}
+  - component: {fileID: 2318457644869030701}
+  - component: {fileID: 2836820376043391730}
   m_Layer: 0
   m_Name: Wall
   m_TagString: Untagged
@@ -32,6 +35,47 @@ Transform:
   - {fileID: 4208081500186524247}
   m_Father: {fileID: 0}
   m_LocalEulerAnglesHint: {x: 0, y: 0, z: 0}
+--- !u!114 &3756010382912277273
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 3249622115306058011}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 8fe6907186f2949819ca7ffc7c3cce80, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: Assembly-CSharp::Health
+  maxHP: 100
+--- !u!114 &2318457644869030701
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 3249622115306058011}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 097763f403084465d9e1bd144a2172fb, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: Assembly-CSharp::DestroyOnDeath
+  delay: 0
+--- !u!114 &2836820376043391730
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 3249622115306058011}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 49aa826228dd741abacc30d0bb82ed0c, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: Assembly-CSharp::HitFlash
+  health: {fileID: 0}
+  flashColor: {r: 1, g: 0, b: 0, a: 0.6313726}
+  flashDuration: 0.12
 --- !u!1 &6639687292356296735
 GameObject:
   m_ObjectHideFlags: 0

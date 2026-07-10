@@ -16,6 +16,13 @@ public class Unit : MonoBehaviour, ISelectable
             selectionRing.SetActive(false);
     }
 
+private void OnDestroy()
+    {
+        if (SelectionManager.Instance != null)
+            SelectionManager.Instance.RemoveFromSelection(this);
+    }
+
+
     public void OnSelected()
     {
         if (selectionRing != null)

@@ -174,6 +174,17 @@ private void UpdateDragVisual(Vector2 startScreen, Vector2 endScreen)
         unit.OnSelected();
     }
 
+/// <summary>
+    /// Called by units as they're destroyed, so the selection never holds
+    /// stale references (touching a destroyed Unit's transform throws).
+    /// No OnDeselected call - the object is going away anyway.
+    /// </summary>
+    public void RemoveFromSelection(Unit unit)
+    {
+        selected.Remove(unit);
+    }
+
+
     private void ClearSelection()
     {
         foreach (Unit unit in selected)

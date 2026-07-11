@@ -15,7 +15,8 @@ MonoBehaviour:
   buildingName: Tower
   prefab: {fileID: 7956237830995750458, guid: ebeb76b8807cf4a1183964db92c94713, type: 3}
   ghostPrefab: {fileID: 5762602761017737784, guid: 12272ca85f25342169d7e34f7cf9593f, type: 3}
-  shellCost: 30
+  costResource: 0
+  cost: 2
   footprint: {x: 2, y: 2}
   range: 10
   damage: 10

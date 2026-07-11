@@ -9,8 +9,15 @@ using UnityEngine.EventSystems;
 public class MovementOrderIssuer : MonoBehaviour
 {
     [SerializeField] private LayerMask groundMask;
+
+    [Tooltip("Right-clicking colliders on these layers assigns selected Workers to gather, instead of a plain move.")]
+    [SerializeField] private LayerMask resourceNodeMask;
+
     [Tooltip("Optional - a small VFX prefab spawned at the ordered point. Leave empty to skip.")]
     [SerializeField] private GameObject clickMarkerPrefab;
+
+    [Tooltip("Optional - a VFX prefab spawned on a resource node when Workers are successfully assigned to it (a blue ring reads well). Leave empty to skip.")]
+    [SerializeField] private GameObject nodeMarkerPrefab;
 
     private void Update()
     {
@@ -29,6 +36,24 @@ public class MovementOrderIssuer : MonoBehaviour
 
 private void IssueMoveOrder()
     {
+        // Right-click priority 1: a resource node - assign selected Workers
+        // to gather from it. (The node raycast runs BEFORE the ground one;
+        // otherwise the ground hit behind the node would always win.)
+        if (MouseWorld.TryGetObjectUnderMouse(resourceNodeMask, out Collider nodeHit))
+        {
+            ResourceDeposit node = nodeHit.GetComponentInParent<ResourceDeposit>();
+            if (node != null && TryAssignWorkers(node))
+            {
+                // Confirmation feedback: mark the node so it's clear the
+                // gather order was actually received.
+                if (nodeMarkerPrefab != null)
+                    Instantiate(nodeMarkerPrefab, node.transform.position + Vector3.up * 0.05f, Quaternion.identity);
+
+                return;
+            }
+        }
+
+        // Right-click priority 2: plain ground - a formation move order.
         if (!MouseWorld.TryGetGroundPoint(groundMask, out Vector3 targetPoint))
             return;
 
@@ -47,6 +72,11 @@ private void IssueMoveOrder()
 
         for (int i = 0; i < selected.Count; i++)
         {
+            // A direct move order is law - it cancels any gather loop first.
+            WorkerAI worker = selected[i].GetComponent<WorkerAI>();
+            if (worker != null)
+                worker.OnManualMoveOrder();
+
             UnitMovement movement = selected[i].GetComponent<UnitMovement>();
             if (movement != null)
                 movement.MoveTo(slots[assignment[i]]);
@@ -54,6 +84,25 @@ private void IssueMoveOrder()
 
         if (clickMarkerPrefab != null)
             Instantiate(clickMarkerPrefab, targetPoint, Quaternion.identity);
+    }
+
+    /// <summary>Assigns every selected Worker to the node. Returns false if the selection contains no Workers, letting the click fall through to a plain move.</summary>
+    private bool TryAssignWorkers(ResourceDeposit node)
+    {
+        var selected = SelectionManager.Instance.Selected;
+        bool assignedAny = false;
+
+        foreach (Unit unit in selected)
+        {
+            WorkerAI worker = unit.GetComponent<WorkerAI>();
+            if (worker != null)
+            {
+                worker.AssignDeposit(node);
+                assignedAny = true;
+            }
+        }
+
+        return assignedAny;
     }
 
 /// <summary>

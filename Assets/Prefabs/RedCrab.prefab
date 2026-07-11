@@ -16,6 +16,8 @@ GameObject:
   - component: {fileID: 4054128398749977065}
   - component: {fileID: 3337107966906402871}
   - component: {fileID: 4734792983032224639}
+  - component: {fileID: 541113049366942483}
+  - component: {fileID: 2481316428249752294}
   m_Layer: 9
   m_Name: RedCrab
   m_TagString: Untagged
@@ -177,6 +179,7 @@ MonoBehaviour:
   blockedGapTolerance: 2.5
   chaseLeashRadius: 6
   blockerSearchRadius: 3
+  unreachableRetargetTime: 2
   damage: 5
   attackRange: 1.2
   attackCooldown: 1
@@ -197,6 +200,33 @@ MonoBehaviour:
   health: {fileID: 0}
   flashColor: {r: 1, g: 0, b: 0, a: 1}
   flashDuration: 0.12
+--- !u!114 &541113049366942483
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 566076421293500731}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 792debd77d76049a9812e63b8e63e2b7, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: Assembly-CSharp::ResourceBounty
+  resourceType: 1
+  amount: 5
+--- !u!114 &2481316428249752294
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 566076421293500731}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 995958672bafe4eaab24f0919c5b37cf, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: Assembly-CSharp::KeepThreatDistance
+  updateInterval: 0.5
 --- !u!1 &1320319649792240906
 GameObject:
   m_ObjectHideFlags: 0

@@ -38,12 +38,10 @@ public class Tower : MonoBehaviour
         }
     }
 
-    private void AcquireTarget()
+private void AcquireTarget()
     {
         Collider[] hits = Physics.OverlapSphere(transform.position, data.range, enemyMask);
 
-        // 'Most dangerous' = closest to the Keep. Fall back to closest to
-        // the tower if there's no Keep in the scene.
         Vector3 keepPosition = Keep.Instance != null
             ? Keep.Instance.transform.position
             : transform.position;
@@ -57,7 +55,20 @@ public class Tower : MonoBehaviour
             if (candidate == null || candidate.IsDead)
                 continue;
 
-            float score = Vector3.Distance(candidate.transform.position, keepPosition);
+            // Overkill prevention: in-flight projectiles have already
+            // committed enough damage to finish this one - don't waste a shot.
+            if (candidate.EffectiveHP <= 0)
+                continue;
+
+            // Danger score: real PATH distance to the Keep when available
+            // (through a maze this differs enormously from the straight
+            // line), straight-line as fallback for enemies without the
+            // component.
+            KeepThreatDistance threat = candidate.GetComponent<KeepThreatDistance>();
+            float score = threat != null
+                ? threat.PathDistanceToKeep
+                : Vector3.Distance(candidate.transform.position, keepPosition);
+
             if (score < bestScore)
             {
                 bestScore = score;

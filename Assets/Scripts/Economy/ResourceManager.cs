@@ -1,25 +1,28 @@
 using System;
+using System.Collections.Generic;
 using UnityEngine;
 
 /// <summary>
-/// The shell stockpile. Two events drive everything downstream: the UI
-/// counter listens to OnShellsChanged (never polls), and failure feedback
-/// listens to OnSpendFailed. Spenders just call TrySpend and respect the
-/// answer - nobody pokes the UI directly, the UI finds out on its own.
+/// The stockpile for ALL resource types, keyed by ResourceType. Everything
+/// downstream is event-driven: counters listen to OnResourceChanged (never
+/// poll) and failure feedback listens to OnSpendFailed - both carry the
+/// resource type so each listener filters for the one it cares about.
 /// </summary>
 public class ResourceManager : MonoBehaviour
 {
     public static ResourceManager Instance { get; private set; }
 
-    [SerializeField] private int startingShells = 100;
+    [Header("Starting Stockpile")]
+    [SerializeField] private int startingSand = 100;
+    [SerializeField] private int startingShells = 20;
 
-    public int Shells { get; private set; }
+    private readonly Dictionary<ResourceType, int> stockpile = new Dictionary<ResourceType, int>();
 
-    /// <summary>Fired on every balance change, with the new total.</summary>
-    public event Action<int> OnShellsChanged;
+    /// <summary>Fired on every balance change: (which resource, new total).</summary>
+    public event Action<ResourceType, int> OnResourceChanged;
 
     /// <summary>Fired when a TrySpend is refused - drive 'can't afford' feedback off this.</summary>
-    public event Action OnSpendFailed;
+    public event Action<ResourceType> OnSpendFailed;
 
     private void Awake()
     {
@@ -29,35 +32,44 @@ public class ResourceManager : MonoBehaviour
             return;
         }
         Instance = this;
-        Shells = startingShells;
+
+        stockpile[ResourceType.Sand] = startingSand;
+        stockpile[ResourceType.Shells] = startingShells;
     }
 
     private void Start()
     {
-        // Announce the starting balance once, so any UI that subscribed
-        // during its own Start gets initialized without polling.
-        OnShellsChanged?.Invoke(Shells);
+        // Announce every starting balance once, so UI that subscribed in its
+        // own Start initializes without polling. (Keys copied to a list so a
+        // listener reacting by spending can't invalidate the iteration.)
+        foreach (ResourceType type in new List<ResourceType>(stockpile.Keys))
+            OnResourceChanged?.Invoke(type, stockpile[type]);
     }
 
-    public bool TrySpend(int amount)
+    public int GetAmount(ResourceType type)
     {
-        if (amount < 0 || Shells < amount)
+        return stockpile.TryGetValue(type, out int amount) ? amount : 0;
+    }
+
+    public bool TrySpend(ResourceType type, int amount)
+    {
+        if (amount < 0 || GetAmount(type) < amount)
         {
-            OnSpendFailed?.Invoke();
+            OnSpendFailed?.Invoke(type);
             return false;
         }
 
-        Shells -= amount;
-        OnShellsChanged?.Invoke(Shells);
+        stockpile[type] = GetAmount(type) - amount;
+        OnResourceChanged?.Invoke(type, stockpile[type]);
         return true;
     }
 
-    public void Add(int amount)
+    public void Add(ResourceType type, int amount)
     {
         if (amount <= 0)
             return;
 
-        Shells += amount;
-        OnShellsChanged?.Invoke(Shells);
+        stockpile[type] = GetAmount(type) + amount;
+        OnResourceChanged?.Invoke(type, stockpile[type]);
     }
 }

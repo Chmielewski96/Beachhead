@@ -42,4 +42,23 @@ public class Health : MonoBehaviour
             OnDeath?.Invoke();
         }
     }
+
+/// <summary>Damage committed by in-flight projectiles (see Projectile) - lets towers avoid overkill.</summary>
+    public int PendingDamage { get; private set; }
+
+    /// <summary>HP left once all in-flight damage lands. At or below zero, shooting this target again is a wasted shot.</summary>
+    public int EffectiveHP => Current - PendingDamage;
+
+    public void ReservePendingDamage(int amount)
+    {
+        if (amount > 0)
+            PendingDamage += amount;
+    }
+
+    public void ReleasePendingDamage(int amount)
+    {
+        if (amount > 0)
+            PendingDamage = Mathf.Max(0, PendingDamage - amount);
+    }
+
 }

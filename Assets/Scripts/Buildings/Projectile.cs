@@ -17,13 +17,29 @@ public class Projectile : MonoBehaviour
     private const float AimHeightOffset = 0.5f; // aim at the body, not the feet
     private const float MaxLifetime = 6f;       // safety net against orphans
 
-    public void Init(Health targetHealth, int damageAmount, float projectileSpeed)
+public void Init(Health targetHealth, int damageAmount, float projectileSpeed)
     {
         target = targetHealth;
         damage = damageAmount;
         speed = projectileSpeed;
         lastKnownPosition = target.transform.position + Vector3.up * AimHeightOffset;
+
+        // Overkill prevention: commit this projectile's damage on the target
+        // immediately, so towers scanning between now and impact can see the
+        // target is already accounted for and pick someone else.
+        target.ReservePendingDamage(damage);
     }
+
+private void OnDestroy()
+    {
+        // Release the reservation no matter HOW this projectile ends - hit,
+        // fizzle, or lifetime expiry all pass through here exactly once.
+        // (If the target's GameObject is already gone, there's nothing to
+        // release the reservation from, which is fine.)
+        if (target != null)
+            target.ReleasePendingDamage(damage);
+    }
+
 
     private void Update()
     {

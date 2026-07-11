@@ -1,4 +1,5 @@
 using UnityEngine;
+using UnityEngine.Serialization;
 
 /// <summary>
 /// Data-driven definition of a placeable building. Each building type is an
@@ -17,8 +18,12 @@ public class BuildingData : ScriptableObject
     [Tooltip("Visual-only copy used as the placement preview: NO colliders, NO NavMeshObstacle, transparent material.")]
     public GameObject ghostPrefab;
 
-    [Tooltip("Unused until Phase 6 (economy) - set sensible values now anyway.")]
-    public int shellCost;
+    [Tooltip("Which resource this building costs. Buildings default to Sand; unit/upgrade costs use Shells.")]
+    public ResourceType costResource = ResourceType.Sand;
+
+    [Tooltip("How much of that resource this building costs to place.")]
+    [FormerlySerializedAs("shellCost")]
+    public int cost;
 
     [Tooltip("XZ size in world units, used for the placement validity check. Match the prefab's actual footprint.")]
     public Vector2 footprint = new Vector2(2f, 2f);

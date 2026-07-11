@@ -403,7 +403,7 @@ private bool TrySpendFor(BuildingData data)
         if (ResourceManager.Instance == null)
             return true; // no economy in the scene - build for free (early testing)
 
-        return ResourceManager.Instance.TrySpend(data.shellCost);
+        return ResourceManager.Instance.TrySpend(data.costResource, data.cost);
     }
 
 }

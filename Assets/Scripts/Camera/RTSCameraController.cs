@@ -10,6 +10,13 @@ using UnityEngine;
 /// </summary>
 public class RTSCameraController : MonoBehaviour
 {
+    public static RTSCameraController Instance { get; private set; }
+
+    /// <summary>False during the opening flythrough (or anything else that wants exclusive camera control) - manual pan/zoom/rotate input is ignored while this is false.</summary>
+    public bool AcceptInput { get; set; } = true;
+
+    /// <summary>Current zoom distance - IntroSequence reads this once at Start to know what "normal" resting zoom to animate back down to.</summary>
+    public float CurrentZoomDistance => currentZoomDistance;
     [Header("References")]
     [Tooltip("The child Camera transform. Auto-found via Camera.main if left empty.")]
     [SerializeField] private Transform cameraTransform;
@@ -51,6 +58,11 @@ public class RTSCameraController : MonoBehaviour
 
         zoomDirection = cameraTransform.localPosition.normalized;
         currentZoomDistance = cameraTransform.localPosition.magnitude;
+
+        if (Instance != null && Instance != this)
+            Destroy(gameObject);
+        else
+            Instance = this;
     }
 
 private void Start()
@@ -66,11 +78,14 @@ private void Start()
     }
 
 
-    private void Update()
+private void Update()
     {
-        HandleRotation();
-        HandlePan();
-        HandleZoom();
+        if (AcceptInput)
+        {
+            HandleRotation();
+            HandlePan();
+            HandleZoom();
+        }
         ClampToBounds();
     }
 
@@ -124,6 +139,21 @@ private void Start()
             cameraTransform.localPosition = zoomDirection * currentZoomDistance;
         }
     }
+
+/// <summary>
+    /// Directly sets the zoom distance, bypassing scroll input and the
+    /// normal min/max clamp entirely - IntroSequence uses this to push the
+    /// camera further out than the player could ever scroll to, then
+    /// animate it back down. Updates currentZoomDistance too, so normal
+    /// scroll-driven zoom picks up seamlessly from wherever this leaves off
+    /// instead of snapping back to a stale value on the next scroll.
+    /// </summary>
+    public void SetZoomDistance(float distance)
+    {
+        currentZoomDistance = distance;
+        cameraTransform.localPosition = zoomDirection * distance;
+    }
+
 
     private void ClampToBounds()
     {

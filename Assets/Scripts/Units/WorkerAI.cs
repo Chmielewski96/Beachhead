@@ -31,6 +31,11 @@ public class WorkerAI : MonoBehaviour
     [Tooltip("Child object shown while carrying sand - e.g. a small sphere above the head.")]
     [SerializeField] private GameObject carryVisual;
 
+    [Header("Auto-Work")]
+    [Tooltip("When idle with nothing assigned (fresh spawn, or a node just ran dry), automatically seek the nearest non-empty deposit. Manual assignment (right-click a node) and manual move orders (right-click ground) still work exactly as before and always take priority - this only fills the gaps where a worker would otherwise stand around waiting to be told what to do.")]
+    [SerializeField] private bool autoSeekWork = true;
+    [SerializeField] private float idleSeekInterval = 1.5f;
+
     [Header("Debug")]
     [Tooltip("Log every state transition - keep on until you trust the FSM, per the plan.")]
     [SerializeField] private bool logStateTransitions = false;
@@ -43,6 +48,7 @@ public class WorkerAI : MonoBehaviour
     private int carried;
     private ResourceType carriedType = ResourceType.Sand;
     private float stateTimer;
+    private float idleSeekTimer;
 
     private void Awake()
     {
@@ -63,7 +69,7 @@ public class WorkerAI : MonoBehaviour
             case State.Harvesting: TickHarvesting(); break;
             case State.MovingToKeep: TickMovingToKeep(); break;
             case State.Depositing: TickDepositing(); break;
-            // Idle: deliberately nothing - plain UnitMovement owns the agent.
+            case State.Idle: TickIdle(); break;
         }
 
         if (carryVisual != null && carryVisual.activeSelf != (carried > 0))
@@ -101,6 +107,10 @@ public class WorkerAI : MonoBehaviour
                 // Hand the agent back to plain movement - crucial when the
                 // interruption arrives mid-Harvest, where isStopped is true.
                 agent.isStopped = false;
+                // Try immediately rather than waiting out the full interval -
+                // a freshly spawned or just-emptied-out worker shouldn't
+                // stand around for a second and a half before it reacts.
+                idleSeekTimer = 0f;
                 break;
 
             case State.MovingToNode:
@@ -193,6 +203,52 @@ private void TickHarvesting()
         // The loop self-sustains: back to the node if it still exists.
         EnterState(assignedNode != null ? State.MovingToNode : State.Idle);
     }
+
+private void TickIdle()
+    {
+        if (!autoSeekWork)
+            return;
+
+        // A manual move order (right-click ground) still in progress takes
+        // priority - don't fight it by snatching the worker back into a
+        // gather loop mid-repositioning. Once the agent has genuinely
+        // stopped moving (including a freshly spawned worker, which was
+        // never moving in the first place), it's fair game.
+        if (agent.pathPending || agent.remainingDistance > agent.stoppingDistance + 0.1f)
+            return;
+
+        idleSeekTimer -= Time.deltaTime;
+        if (idleSeekTimer > 0f)
+            return;
+        idleSeekTimer = idleSeekInterval;
+
+        TryAutoAssignNearestNode();
+    }
+
+    private void TryAutoAssignNearestNode()
+    {
+        ResourceDeposit[] allNodes = FindObjectsByType<ResourceDeposit>(FindObjectsSortMode.None);
+
+        ResourceDeposit nearest = null;
+        float bestDistance = float.MaxValue;
+
+        foreach (ResourceDeposit node in allNodes)
+        {
+            if (node.IsEmpty)
+                continue;
+
+            float distance = Vector3.Distance(transform.position, node.transform.position);
+            if (distance < bestDistance)
+            {
+                bestDistance = distance;
+                nearest = node;
+            }
+        }
+
+        if (nearest != null)
+            AssignDeposit(nearest); // same entry point the player's right-click uses
+    }
+
 
     private bool WithinRange(Collider targetCollider)
     {

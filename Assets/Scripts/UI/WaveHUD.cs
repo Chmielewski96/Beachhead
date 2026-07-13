@@ -17,9 +17,13 @@ public class WaveHUD : MonoBehaviour
     [SerializeField] private float announcementHoldTime = 1.5f;
     [SerializeField] private float announcementFadeTime = 1f;
 
+    [Header("Skip Build Phase")]
+    [Tooltip("Shown only during the Build phase - lets the player call the wave in early (small shell bonus, see WaveManager.SkipBuildPhase).")]
+    [SerializeField] private UnityEngine.UI.Button skipBuildButton;
+
     private Coroutine announcementRoutine;
 
-    private void Start()
+private void Start()
     {
         if (announcementLabel != null)
             announcementLabel.alpha = 0f;
@@ -31,6 +35,9 @@ public class WaveHUD : MonoBehaviour
             WaveManager.Instance.OnWaveCleared += HandleWaveCleared;
             WaveManager.Instance.OnVictory += HandleVictory;
         }
+
+        if (skipBuildButton != null)
+            skipBuildButton.onClick.AddListener(HandleSkipClicked);
     }
 
     private void OnDestroy()
@@ -67,15 +74,21 @@ public class WaveHUD : MonoBehaviour
         }
     }
 
-    private void HandleBuildPhaseStarted(int waveNumber, float duration)
+private void HandleBuildPhaseStarted(int waveNumber, float duration)
     {
         if (waveNumber > 1)
             Announce("Wave cleared!");
+
+        if (skipBuildButton != null)
+            skipBuildButton.gameObject.SetActive(true);
     }
 
-    private void HandleCombatPhaseStarted(int waveNumber)
+private void HandleCombatPhaseStarted(int waveNumber)
     {
         Announce("Wave " + waveNumber + "!");
+
+        if (skipBuildButton != null)
+            skipBuildButton.gameObject.SetActive(false);
     }
 
     private void HandleWaveCleared(int waveNumber)
@@ -84,9 +97,27 @@ public class WaveHUD : MonoBehaviour
         // two never overlap; this handler exists for future hooks (audio etc).
     }
 
-    private void HandleVictory()
+private void HandleVictory()
     {
         Announce("VICTORY!");
+
+        if (skipBuildButton != null)
+            skipBuildButton.gameObject.SetActive(false);
+    }
+
+    private void HandleSkipClicked()
+    {
+        // Same modal-tool discipline as every other input path in the
+        // project - a click during the intro or while paused shouldn't
+        // reach through, even though this is a direct Button.onClick rather
+        // than a MouseWorld raycast.
+        if (PauseManager.Instance != null && PauseManager.Instance.IsPaused)
+            return;
+        if (IntroSequence.Instance != null && IntroSequence.Instance.IsIntroActive)
+            return;
+
+        if (WaveManager.Instance != null)
+            WaveManager.Instance.SkipBuildPhase();
     }
 
     private void Announce(string message)
@@ -99,17 +130,21 @@ public class WaveHUD : MonoBehaviour
         announcementRoutine = StartCoroutine(AnnounceRoutine(message));
     }
 
-    private IEnumerator AnnounceRoutine(string message)
+private IEnumerator AnnounceRoutine(string message)
     {
         announcementLabel.text = message;
         announcementLabel.alpha = 1f;
 
-        yield return new WaitForSeconds(announcementHoldTime);
+        yield return new WaitForSecondsRealtime(announcementHoldTime);
 
+        // Unscaled: the VICTORY announcement fires from the same event
+        // chain that sets Time.timeScale = 0, so scaled deltaTime here
+        // would freeze the fade forever instead of ever completing it -
+        // same root cause as the EndScreenUI fade.
         float elapsed = 0f;
         while (elapsed < announcementFadeTime)
         {
-            elapsed += Time.deltaTime;
+            elapsed += Time.unscaledDeltaTime;
             announcementLabel.alpha = 1f - (elapsed / announcementFadeTime);
             yield return null;
         }

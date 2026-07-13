@@ -40,6 +40,13 @@ public class RingRenderer : MonoBehaviour
         line.loop = true;
         line.useWorldSpace = false; // so parent scaling (ClickMarkerVFX) works
         line.widthMultiplier = lineWidth;
+
+        // Without corner/cap smoothing, a THICK LineRenderer loop renders as
+        // a faceted polygon with a visible seam at the closing joint - only
+        // became obvious once width went from 0.12 to 1.5 for the spawn
+        // rings. Rounds every segment joint, including the loop closure.
+        line.numCornerVertices = 8;
+        line.numCapVertices = 8;
         line.startColor = color;
         line.endColor = color;
         line.positionCount = segments;

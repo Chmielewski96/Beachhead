@@ -52,6 +52,12 @@ private void Awake()
 
 private void Update()
     {
+        if (PauseManager.Instance != null && PauseManager.Instance.IsPaused)
+            return;
+
+        if (IntroSequence.Instance != null && IntroSequence.Instance.IsIntroActive)
+            return;
+
         if (!IsDemolishing)
         {
             // Don't fight with placement mode - one modal tool at a time.

@@ -10,8 +10,14 @@ public class GarrisonReinforceInput : MonoBehaviour
 {
     [SerializeField] private LayerMask buildingMask;
 
-    private void Update()
+private void Update()
     {
+        if (PauseManager.Instance != null && PauseManager.Instance.IsPaused)
+            return;
+
+        if (IntroSequence.Instance != null && IntroSequence.Instance.IsIntroActive)
+            return;
+
         if (!Input.GetKeyDown(KeyCode.U))
             return;
 

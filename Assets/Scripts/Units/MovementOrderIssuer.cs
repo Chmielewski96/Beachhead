@@ -21,6 +21,12 @@ public class MovementOrderIssuer : MonoBehaviour
 
     private void Update()
     {
+        if (PauseManager.Instance != null && PauseManager.Instance.IsPaused)
+            return;
+
+        if (IntroSequence.Instance != null && IntroSequence.Instance.IsIntroActive)
+            return;
+
         if (EventSystem.current != null && EventSystem.current.IsPointerOverGameObject())
             return;
 

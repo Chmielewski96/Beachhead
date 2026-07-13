@@ -58,9 +58,16 @@ public class WaveManager : MonoBehaviour
         BeginBuildPhase(0);
     }
 
-    private void Update()
+private void Update()
     {
         if (CurrentPhase != Phase.Build)
+            return;
+
+        // The intro sequence deliberately holds this countdown so the
+        // player doesn't lose real build-phase seconds to the opening
+        // camera flythrough - the wave counter UI stays hidden until this
+        // unlocks, so the reveal and the clock actually starting line up.
+        if (IntroSequence.Instance != null && !IntroSequence.Instance.WaveTimerUnlocked)
             return;
 
         BuildTimeRemaining -= Time.deltaTime;

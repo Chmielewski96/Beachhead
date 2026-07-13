@@ -77,6 +77,12 @@ public class BuildingPlacer : MonoBehaviour
 
 private void Update()
     {
+        if (PauseManager.Instance != null && PauseManager.Instance.IsPaused)
+            return;
+
+        if (IntroSequence.Instance != null && IntroSequence.Instance.IsIntroActive)
+            return;
+
         // Hotkeys work both outside placement mode (start placing) and
         // inside it (toggle off / switch building).
         HandleDebugHotkeys();

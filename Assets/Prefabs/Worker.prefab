@@ -183,6 +183,7 @@ GameObject:
   - component: {fileID: 2354075210562017714}
   - component: {fileID: 701651916445440290}
   - component: {fileID: 2969426382931545741}
+  - component: {fileID: -5001197565425258834}
   m_Layer: 7
   m_Name: Worker
   m_TagString: Untagged
@@ -379,6 +380,18 @@ MonoBehaviour:
   interactRange: 1.5
   carryVisual: {fileID: 7862408597644322373}
   logStateTransitions: 0
+--- !u!114 &-5001197565425258834
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 1728593266543373611}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 4bf1da69eeaa24eee899365599f33b47, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: Assembly-CSharp::KnockbackReceiver
 --- !u!1 &5599290536357360095
 GameObject:
   m_ObjectHideFlags: 0

@@ -181,9 +181,14 @@ private void HandleDebugHotkeys()
                 // toggles placement mode off; a different hotkey switches
                 // to that building instead.
                 if (currentData == debugBuildings[i])
+                {
                     CancelPlacement();
+                }
                 else
+                {
+                    DemolishInput.Instance?.Cancel(); // one modal tool at a time
                     StartPlacing(debugBuildings[i]);
+                }
             }
         }
     }
@@ -339,7 +344,8 @@ private void TintGhost(Color color)
                 if (!TrySpendFor(currentData))
                     break;
 
-                Instantiate(currentData.prefab, lineCells[i], rotation);
+                GameObject placed = Instantiate(currentData.prefab, lineCells[i], rotation);
+                placed.AddComponent<PlacedBuilding>().Init(currentData);
             }
             ExitLineDrag();
         }
@@ -390,7 +396,10 @@ private void HandlePlacementInput()
             else if (isValid)
             {
                 if (TrySpendFor(currentData))
-                    Instantiate(currentData.prefab, ghost.transform.position, ghost.transform.rotation);
+                {
+                    GameObject placed = Instantiate(currentData.prefab, ghost.transform.position, ghost.transform.rotation);
+                    placed.AddComponent<PlacedBuilding>().Init(currentData);
+                }
                 // Placement mode persists - right-click or Esc to exit.
                 // A refused spend fires ResourceManager.OnSpendFailed, which
                 // the shell counter turns into a red flash - no coupling here.
@@ -403,7 +412,28 @@ private bool TrySpendFor(BuildingData data)
         if (ResourceManager.Instance == null)
             return true; // no economy in the scene - build for free (early testing)
 
-        return ResourceManager.Instance.TrySpend(data.costResource, data.cost);
+        if (data.costs == null || data.costs.Length == 0)
+            return true; // free building
+
+        var rm = ResourceManager.Instance;
+
+        // Atomic spend: verify EVERYTHING first. On the first shortfall, run
+        // the failing TrySpend anyway - it refuses and fires OnSpendFailed,
+        // which flashes the right counter - then bail without charging
+        // anything else.
+        foreach (BuildingData.ResourceCost cost in data.costs)
+        {
+            if (rm.GetAmount(cost.resource) < cost.amount)
+            {
+                rm.TrySpend(cost.resource, cost.amount);
+                return false;
+            }
+        }
+
+        foreach (BuildingData.ResourceCost cost in data.costs)
+            rm.TrySpend(cost.resource, cost.amount);
+
+        return true;
     }
 
 }

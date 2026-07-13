@@ -53,6 +53,19 @@ public class RTSCameraController : MonoBehaviour
         currentZoomDistance = cameraTransform.localPosition.magnitude;
     }
 
+private void Start()
+    {
+        // Center on the Keep at game start, wherever it's actually placed -
+        // Start (not Awake) so Keep.Awake has already set Instance regardless
+        // of script execution order between the two.
+        if (Keep.Instance != null)
+        {
+            Vector3 keepPos = Keep.Instance.transform.position;
+            transform.position = new Vector3(keepPos.x, transform.position.y, keepPos.z);
+        }
+    }
+
+
     private void Update()
     {
         HandleRotation();

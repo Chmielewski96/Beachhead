@@ -14,8 +14,19 @@ public class SelectionManager : MonoBehaviour
     public IReadOnlyList<Unit> Selected => selected;
     private readonly List<Unit> selected = new List<Unit>();
 
+    /// <summary>The currently selected building, or null. Buildings and units are never selected together.</summary>
+    public BuildingSelectable SelectedBuilding { get; private set; }
+
+    /// <summary>Fired when the selected building changes (null = deselected).</summary>
+    public event System.Action<BuildingSelectable> OnBuildingSelectionChanged;
+
+
     [Header("Layers")]
     [SerializeField] private LayerMask unitMask;
+
+    [Tooltip("Single-clicking these layers selects a building (if it has a BuildingSelectable). Drag-box stays units-only.")]
+    [SerializeField] private LayerMask buildingMask;
+
 
     [Header("Drag Box UI")]
     [Tooltip("A UI Image's RectTransform, anchored/pivoted to (0,0), parented directly under the Canvas.")]
@@ -47,6 +58,10 @@ public class SelectionManager : MonoBehaviour
         // Placement mode owns the mouse - the click that places or cancels
         // a building must not also select/deselect units.
         if (BuildingPlacer.Instance != null && BuildingPlacer.Instance.IsBlockingWorldClicks)
+            return;
+
+        // Same reasoning for demolish mode.
+        if (DemolishInput.Instance != null && DemolishInput.Instance.IsBlockingWorldClicks)
             return;
 
 
@@ -117,7 +132,7 @@ private void UpdateDragVisual(Vector2 startScreen, Vector2 endScreen)
         dragBoxVisual.sizeDelta = maxLocal - minLocal;
     }
 
-    private void SelectSingleUnitUnderMouse()
+private void SelectSingleUnitUnderMouse()
     {
         bool additive = Input.GetKey(KeyCode.LeftShift) || Input.GetKey(KeyCode.RightShift);
 
@@ -128,8 +143,24 @@ private void UpdateDragVisual(Vector2 startScreen, Vector2 endScreen)
             {
                 if (!additive)
                     ClearSelection();
+                else
+                    DeselectBuilding(); // buildings never mix with unit selections
 
                 AddToSelection(unit);
+                return;
+            }
+        }
+
+        // No unit under the cursor - maybe a selectable building?
+        if (MouseWorld.TryGetObjectUnderMouse(buildingMask, out Collider buildingHit))
+        {
+            BuildingSelectable building = buildingHit.GetComponentInParent<BuildingSelectable>();
+            if (building != null)
+            {
+                ClearSelection();
+                SelectedBuilding = building;
+                building.OnSelected();
+                OnBuildingSelectionChanged?.Invoke(building);
                 return;
             }
         }
@@ -138,6 +169,16 @@ private void UpdateDragVisual(Vector2 startScreen, Vector2 endScreen)
         // the existing selection alone (standard RTS behavior).
         if (!additive)
             ClearSelection();
+    }
+
+    private void DeselectBuilding()
+    {
+        if (SelectedBuilding == null)
+            return;
+
+        SelectedBuilding.OnDeselected();
+        SelectedBuilding = null;
+        OnBuildingSelectionChanged?.Invoke(null);
     }
 
     private void SelectUnitsInScreenRect(Vector2 startScreen, Vector2 endScreen)
@@ -185,10 +226,12 @@ private void UpdateDragVisual(Vector2 startScreen, Vector2 endScreen)
     }
 
 
-    private void ClearSelection()
+private void ClearSelection()
     {
         foreach (Unit unit in selected)
             unit.OnDeselected();
         selected.Clear();
+
+        DeselectBuilding();
     }
 }

@@ -15,6 +15,7 @@ MonoBehaviour:
   buildingName: Wall
   prefab: {fileID: 3249622115306058011, guid: 7d0137722ad304e1888b455872ad9bb0, type: 3}
   ghostPrefab: {fileID: 3249622115306058011, guid: cf7c70f93055449aea3091446ffe7b31, type: 3}
-  costResource: 0
-  cost: 2
+  costs:
+  - resource: 0
+    amount: 10
   footprint: {x: 2, y: 2}

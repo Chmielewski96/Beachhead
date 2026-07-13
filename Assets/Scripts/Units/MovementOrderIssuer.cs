@@ -29,6 +29,10 @@ public class MovementOrderIssuer : MonoBehaviour
         if (BuildingPlacer.Instance != null && BuildingPlacer.Instance.IsBlockingWorldClicks)
             return;
 
+        // Same reasoning for demolish mode.
+        if (DemolishInput.Instance != null && DemolishInput.Instance.IsBlockingWorldClicks)
+            return;
+
 
         if (Input.GetMouseButtonDown(1))
             IssueMoveOrder();

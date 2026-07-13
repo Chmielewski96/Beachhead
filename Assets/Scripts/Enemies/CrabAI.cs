@@ -1,18 +1,27 @@
 using System.Collections;
+using System.Collections.Generic;
 using UnityEngine;
 using UnityEngine.AI;
 
 /// <summary>
-/// Crab enemy: a two-state FSM. Default behavior is marching on the Keep;
-/// anything damageable (walls, units, the Keep itself) entering its aggro
-/// radius becomes a target to chase and attack until dead, then it resumes
-/// the march. This is the entire tower-defense threat model: crabs chew
-/// through obstacles in their way but always trend toward the Keep.
+/// Crab enemy FSM. Default behavior is marching on the Keep; anything
+/// damageable entering its aggro radius becomes a target by priority:
+/// units first (always), the Keep once in reach, and other buildings ONLY
+/// when the path to the Keep is actually blocked - anchored to where the
+/// path dead-ends, so free-standing walls that block nothing are ignored.
+///
+/// Two attack styles, selected per prefab (data, not code):
+///  - SingleTarget: the regular crab's bite on a cooldown.
+///  - ConeSlam: the Brute's Turtling-Heavy-style attack - a windup with a
+///    white charge-glow tell and a direction FROZEN at windup start (so
+///    sidestepping dodges it), then cone AoE damage with knockback.
 /// </summary>
 [RequireComponent(typeof(NavMeshAgent))]
 [RequireComponent(typeof(Health))]
 public class CrabAI : MonoBehaviour
 {
+    public enum AttackStyle { SingleTarget, ConeSlam }
+
     private enum State { MarchingToKeep, AttackingTarget }
 
     [Header("Aggro")]
@@ -21,31 +30,32 @@ public class CrabAI : MonoBehaviour
     [SerializeField] private float scanInterval = 0.25f;
     [Tooltip("What the crab will attack: Building | Unit.")]
     [SerializeField] private LayerMask targetMask;
-
     [Tooltip("Which target layers count as mobile units - always top priority, and they interrupt building attacks.")]
     [SerializeField] private LayerMask unitMask;
 
+    [Header("Blocked-Path Behavior")]
     [Tooltip("When the path to the Keep is partial, how far short of the Keep it must stop before the crab decides it's walled off and starts attacking buildings.")]
     [SerializeField] private float blockedGapTolerance = 2.5f;
-
-    [Tooltip("How far a chased unit can get before the crab gives up on it. Keep this larger than the aggro radius so a unit dancing on the aggro boundary doesn't cause target flickering.")]
+    [Tooltip("How far a chased unit can get before the crab gives up on it. Keep larger than the aggro radius to avoid target flickering.")]
     [SerializeField] private float chaseLeashRadius = 10f;
-
     [Tooltip("When walled off, how far around the path's dead-end point to search for the blocking wall.")]
     [SerializeField] private float blockerSearchRadius = 3f;
-
-    [Tooltip("If a crab makes no progress toward its wall for this long (usually because other crabs hog every attack slot), it switches to a neighboring segment of the same blockade.")]
+    [Tooltip("If a crab makes no progress toward its wall for this long (attack slots crowded), it switches to a neighboring segment of the same blockade.")]
     [SerializeField] private float unreachableRetargetTime = 2f;
 
-
-
-
-
     [Header("Attack")]
+    [SerializeField] private AttackStyle attackStyle = AttackStyle.SingleTarget;
     [SerializeField] private int damage = 5;
     [Tooltip("Measured from the closest point on the target's collider, not its center - so big buildings are hittable from any side.")]
     [SerializeField] private float attackRange = 1.2f;
     [SerializeField] private float attackCooldown = 1f;
+
+    [Header("Cone Slam (Brute only - ignored for SingleTarget)")]
+    [SerializeField] private float slamWindupDuration = 0.8f;
+    [SerializeField] private float slamConeRange = 3f;
+    [SerializeField] private float slamConeAngle = 75f;
+    [SerializeField] private float slamKnockbackDistance = 3f;
+    [SerializeField] private float slamKnockbackDuration = 0.25f;
 
     [Header("Death")]
     [SerializeField] private float toppleDuration = 0.4f;
@@ -57,16 +67,20 @@ public class CrabAI : MonoBehaviour
     private Health targetHealth;
     private Collider targetCollider;
     private Collider keepCollider;
-    private UnityEngine.AI.NavMeshPath pathProbe; // reused scratch path for blocked-checks
-
-
+    private NavMeshPath pathProbe;
     private float scanTimer;
     private float attackTimer;
     private float approachTimer;
     private float closestApproach = float.MaxValue;
+    private bool isWindingUp;
+    private Coroutine windupRoutine;
+    private Renderer[] renderers;
+    private Color[] baseColors;
+    private MaterialPropertyBlock glowBlock;
 
+    private static readonly int BaseColorId = Shader.PropertyToID("_BaseColor");
 
-private void Awake()
+    private void Awake()
     {
         agent = GetComponent<NavMeshAgent>();
         selfHealth = GetComponent<Health>();
@@ -74,9 +88,20 @@ private void Awake()
 
         // Randomize avoidance priority (lower = more assertive). When two
         // agents share the same priority neither yields and both hesitate -
-        // in single-file corridors that becomes a visible traffic jam. A
-        // random spread means every encounter has a clear right-of-way.
+        // in single-file corridors that becomes a visible traffic jam.
         agent.avoidancePriority = Random.Range(30, 70);
+
+        // Charge-glow plumbing (only used by ConeSlam).
+        renderers = GetComponentsInChildren<Renderer>();
+        baseColors = new Color[renderers.Length];
+        for (int i = 0; i < renderers.Length; i++)
+        {
+            Material mat = renderers[i].sharedMaterial;
+            baseColors[i] = (mat != null && mat.HasProperty(BaseColorId))
+                ? mat.GetColor(BaseColorId)
+                : Color.white;
+        }
+        glowBlock = new MaterialPropertyBlock();
     }
 
     private void OnDestroy()
@@ -85,7 +110,7 @@ private void Awake()
             selfHealth.OnDeath -= HandleDeath;
     }
 
-private void Start()
+    private void Start()
     {
         if (Keep.Instance != null)
             keepCollider = Keep.Instance.GetComponentInChildren<Collider>();
@@ -93,27 +118,29 @@ private void Start()
         MarchToKeep();
     }
 
-private void Update()
+    private void Update()
     {
-        // Same guard pattern as Turtling's IsDead flag: never act after death,
-        // even if this Update slips in on the death frame.
+        // Same guard pattern as Turtling's IsDead flag: never act after death.
         if (selfHealth.IsDead)
             return;
 
         // Recovery: placing a wall right next to a crab can carve the NavMesh
-        // out from under its feet (carving erodes ~one agent radius beyond
-        // the wall's faces). An off-mesh agent can't move AT ALL - every
-        // SetDestination silently fails - so warp back to the nearest
-        // walkable spot and resume next frame.
+        // out from under its feet. An off-mesh agent can't move AT ALL -
+        // warp back to the nearest walkable spot and resume next frame.
         if (!agent.isOnNavMesh)
         {
-            if (UnityEngine.AI.NavMesh.SamplePosition(transform.position, out UnityEngine.AI.NavMeshHit hit, 3f, UnityEngine.AI.NavMesh.AllAreas))
+            if (NavMesh.SamplePosition(transform.position, out NavMeshHit hit, 3f, NavMesh.AllAreas))
             {
                 agent.Warp(hit.position);
                 MarchToKeep(); // Warp clears the agent's path - re-issue intent
             }
             return;
         }
+
+        // Committed to a slam windup: hold position and direction (the
+        // frozen-at-action-start pattern - dodgeable by design).
+        if (isWindingUp)
+            return;
 
         switch (state)
         {
@@ -137,7 +164,7 @@ private void Update()
         }
     }
 
-private void TickAttacking()
+    private void TickAttacking()
     {
         // Target died (or its GameObject was destroyed) - resume the march.
         if (targetHealth == null || targetHealth.IsDead)
@@ -226,12 +253,91 @@ private void TickAttacking()
             if (attackTimer <= 0f)
             {
                 attackTimer = attackCooldown;
-                targetHealth.TakeDamage(damage);
+
+                if (attackStyle == AttackStyle.SingleTarget)
+                    targetHealth.TakeDamage(damage);
+                else
+                    windupRoutine = StartCoroutine(WindupAndSlam());
             }
         }
     }
 
-private bool TryAcquireTarget()
+    private IEnumerator WindupAndSlam()
+    {
+        isWindingUp = true;
+
+        // Frozen at windup start - the Turtling Heavy pattern. The slam
+        // lands where the crab AIMED, not where the target ran to, which is
+        // exactly what makes it dodgeable and fair.
+        Vector3 origin = transform.position;
+        Vector3 slamDirection = targetCollider != null
+            ? targetCollider.ClosestPoint(origin) - origin
+            : transform.forward;
+        slamDirection.y = 0f;
+        if (slamDirection.sqrMagnitude < 0.01f)
+            slamDirection = transform.forward;
+        slamDirection.Normalize();
+
+        // Visual tell: charge-glow toward white over the whole windup.
+        float elapsed = 0f;
+        while (elapsed < slamWindupDuration)
+        {
+            if (selfHealth.IsDead)
+            {
+                SetGlow(0f);
+                isWindingUp = false;
+                yield break;
+            }
+
+            elapsed += Time.deltaTime;
+            SetGlow(Mathf.Lerp(0f, 0.85f, elapsed / slamWindupDuration));
+            yield return null;
+        }
+        SetGlow(0f);
+
+        // Resolve the cone from the FROZEN origin and direction.
+        Collider[] hits = Physics.OverlapSphere(origin, slamConeRange, targetMask);
+        HashSet<Health> alreadyHit = new HashSet<Health>();
+
+        foreach (Collider hit in hits)
+        {
+            Health victim = hit.GetComponentInParent<Health>();
+            if (victim == null || victim.IsDead || alreadyHit.Contains(victim))
+                continue;
+
+            Vector3 toVictim = hit.ClosestPoint(origin) - origin;
+            toVictim.y = 0f;
+            if (toVictim.sqrMagnitude > 0.0001f &&
+                Vector3.Angle(slamDirection, toVictim) > slamConeAngle * 0.5f)
+                continue;
+
+            alreadyHit.Add(victim);
+            victim.TakeDamage(damage);
+
+            // Only things with a receiver get shoved - buildings just take the hit.
+            KnockbackReceiver knockback = victim.GetComponent<KnockbackReceiver>();
+            if (knockback != null && toVictim.sqrMagnitude > 0.0001f)
+                knockback.ApplyKnockback(toVictim.normalized, slamKnockbackDistance, slamKnockbackDuration);
+        }
+
+        isWindingUp = false;
+    }
+
+    private void SetGlow(float intensity)
+    {
+        for (int i = 0; i < renderers.Length; i++)
+        {
+            if (renderers[i] == null)
+                continue;
+
+            glowBlock.Clear();
+            if (intensity > 0f)
+                glowBlock.SetColor(BaseColorId, Color.Lerp(baseColors[i], Color.white, intensity));
+            renderers[i].SetPropertyBlock(glowBlock);
+        }
+    }
+
+    private bool TryAcquireTarget()
     {
         Collider[] hits = Physics.OverlapSphere(transform.position, aggroRadius, targetMask);
 
@@ -258,15 +364,12 @@ private bool TryAcquireTarget()
         }
 
         // Priority 3: when the path is blocked, attack the wall that's
-        // actually IN THE WAY - the one nearest to where the path toward
-        // the Keep dead-ends - NOT whichever wall is nearest the crab.
-        // A free-standing wall that blocks nothing gets walked past.
+        // actually IN THE WAY. Candidates come from around the path's
+        // dead-end (only blockade walls are eligible), but each crab picks
+        // the candidate nearest to ITSELF, spreading the horde across
+        // neighboring segments instead of piling onto one block.
         if (IsPathToKeepBlocked(out Vector3 stuckPoint))
         {
-            // Candidates come from around the path's dead-end (so only walls
-            // actually part of the blockade are eligible) - but each crab
-            // picks the candidate nearest to ITSELF, spreading the horde
-            // across neighboring segments instead of piling onto one block.
             int buildingMask = targetMask.value & ~unitMask.value;
             Collider[] blockers = Physics.OverlapSphere(stuckPoint, blockerSearchRadius, buildingMask);
             if (TryFindNearest(transform.position, blockers, buildingMask, out Health blockerHealth, out Collider blockerCollider))
@@ -279,7 +382,7 @@ private bool TryAcquireTarget()
         return false;
     }
 
-/// <summary>
+    /// <summary>
     /// Crowding fallback: pick a different segment of the CURRENT blockade
     /// (candidates are still anchored to the path's dead-end, so a wall
     /// that blocks nothing can never be chosen), excluding the segment we
@@ -296,8 +399,7 @@ private bool TryAcquireTarget()
             SetTarget(blockerHealth, blockerCollider);
     }
 
-
-private bool TryFindNearest(Vector3 from, Collider[] hits, LayerMask filter, out Health bestHealth, out Collider bestCollider, Collider exclude = null)
+    private bool TryFindNearest(Vector3 from, Collider[] hits, LayerMask filter, out Health bestHealth, out Collider bestCollider, Collider exclude = null)
     {
         float bestDistance = float.MaxValue;
         bestHealth = null;
@@ -327,7 +429,7 @@ private bool TryFindNearest(Vector3 from, Collider[] hits, LayerMask filter, out
         return bestHealth != null;
     }
 
-private void SetTarget(Health health, Collider targetColliderIn)
+    private void SetTarget(Health health, Collider targetColliderIn)
     {
         targetHealth = health;
         targetCollider = targetColliderIn;
@@ -337,7 +439,7 @@ private void SetTarget(Health health, Collider targetColliderIn)
         closestApproach = float.MaxValue;
     }
 
-private bool IsPathToKeepBlocked(out Vector3 stuckPoint)
+    private bool IsPathToKeepBlocked(out Vector3 stuckPoint)
     {
         stuckPoint = transform.position;
 
@@ -345,41 +447,41 @@ private bool IsPathToKeepBlocked(out Vector3 stuckPoint)
             return false;
 
         if (pathProbe == null)
-            pathProbe = new UnityEngine.AI.NavMeshPath();
+            pathProbe = new NavMeshPath();
 
         // A crab pressed against a wall is often standing just off the
         // NavMesh (carving erodes the surface around obstacles) and path
         // queries from off-mesh positions fail - snap to walkable first.
         Vector3 start = transform.position;
-        if (UnityEngine.AI.NavMesh.SamplePosition(start, out UnityEngine.AI.NavMeshHit startHit, 2f, UnityEngine.AI.NavMesh.AllAreas))
+        if (NavMesh.SamplePosition(start, out NavMeshHit startHit, 2f, NavMesh.AllAreas))
             start = startHit.position;
 
         // 'Doorstep' = the walkable point nearest the Keep's center. Caution:
         // if walls are built snug against the Keep (their carve merges with
         // the Keep's own carve), this point can land OUTSIDE the wall ring.
         Vector3 keepDoorstep = Keep.Instance.transform.position;
-        if (UnityEngine.AI.NavMesh.SamplePosition(keepDoorstep, out UnityEngine.AI.NavMeshHit keepHit, 15f, UnityEngine.AI.NavMesh.AllAreas))
+        if (NavMesh.SamplePosition(keepDoorstep, out NavMeshHit keepHit, 15f, NavMesh.AllAreas))
             keepDoorstep = keepHit.position;
 
         bool doorstepTouchesKeep =
             Vector3.Distance(keepDoorstep, keepCollider.ClosestPoint(keepDoorstep)) <= blockedGapTolerance;
 
-        if (!UnityEngine.AI.NavMesh.CalculatePath(start, keepDoorstep, UnityEngine.AI.NavMesh.AllAreas, pathProbe))
+        if (!NavMesh.CalculatePath(start, keepDoorstep, NavMesh.AllAreas, pathProbe))
         {
             stuckPoint = start;
             return true; // no path computable even from a walkable spot
         }
 
-        if (pathProbe.status == UnityEngine.AI.NavMeshPathStatus.PathComplete)
+        if (pathProbe.status == NavMeshPathStatus.PathComplete)
         {
             if (doorstepTouchesKeep)
                 return false; // genuinely reachable - path leads right to the Keep
 
             // We CAN reach the walkable point nearest the Keep... but that
-            // point isn't actually AT the Keep. Meaning: the Keep is sealed
-            // so tightly that no walkable ground touches it at all. That is
-            // blocked - and the doorstep sits right against the seal, which
-            // makes it exactly the right anchor for the blocker search.
+            // point isn't actually AT the Keep: the Keep is sealed so
+            // tightly no walkable ground touches it. Blocked - and the
+            // doorstep sits right against the seal, which makes it exactly
+            // the right anchor for the blocker search.
             stuckPoint = keepDoorstep;
             return true;
         }
@@ -407,7 +509,7 @@ private bool IsPathToKeepBlocked(out Vector3 stuckPoint)
         targetHealth = null;
         targetCollider = null;
 
-        if (Keep.Instance != null)
+        if (Keep.Instance != null && agent.enabled && agent.isOnNavMesh)
         {
             agent.isStopped = false;
             agent.SetDestination(Keep.Instance.transform.position);
@@ -416,8 +518,18 @@ private bool IsPathToKeepBlocked(out Vector3 stuckPoint)
 
     private void HandleDeath()
     {
-        // Stop navigating and become intangible so corpses don't block the living.
-        agent.isStopped = true;
+        if (windupRoutine != null)
+        {
+            StopCoroutine(windupRoutine);
+            SetGlow(0f);
+            isWindingUp = false;
+        }
+
+        // Stop navigating and become intangible so corpses don't block the
+        // living. Guarded: a crab can die while shoved off the mesh (wall
+        // carve fringe), and isStopped throws on an off-mesh agent.
+        if (agent.enabled && agent.isOnNavMesh)
+            agent.isStopped = true;
         agent.enabled = false;
         foreach (Collider c in GetComponentsInChildren<Collider>())
             c.enabled = false;
@@ -427,7 +539,6 @@ private bool IsPathToKeepBlocked(out Vector3 stuckPoint)
 
     private IEnumerator DeathSequence()
     {
-        // Quick topple, then vanish - placeholder-art appropriate.
         Quaternion start = transform.rotation;
         Quaternion end = start * Quaternion.Euler(0f, 0f, 90f);
         float elapsed = 0f;

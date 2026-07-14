@@ -21,12 +21,23 @@ public class WaveHUD : MonoBehaviour
     [Tooltip("Shown only during the Build phase - lets the player call the wave in early (small shell bonus, see WaveManager.SkipBuildPhase).")]
     [SerializeField] private UnityEngine.UI.Button skipBuildButton;
 
+    [Header("Boss Health Bar (final wave only)")]
+    [Tooltip("Occupies the SAME screen slot as the announcement text on the final wave - there's no 'Wave N!' flash for a one-enemy boss wave, this replaces it for the whole fight.")]
+    [SerializeField] private CanvasGroup bossHealthBarGroup;
+    [SerializeField] private TMP_Text bossNameLabel;
+    [SerializeField] private UnityEngine.UI.Slider bossHealthSlider;
+    [SerializeField] private string bossDisplayName = "GIANT PALM CRAB";
+
     private Coroutine announcementRoutine;
+    private Health trackedBossHealth;
 
 private void Start()
     {
         if (announcementLabel != null)
             announcementLabel.alpha = 0f;
+
+        if (bossHealthBarGroup != null)
+            bossHealthBarGroup.alpha = 0f;
 
         if (WaveManager.Instance != null)
         {
@@ -49,6 +60,8 @@ private void Start()
             WaveManager.Instance.OnWaveCleared -= HandleWaveCleared;
             WaveManager.Instance.OnVictory -= HandleVictory;
         }
+
+        UnsubscribeBossHealth();
     }
 
     private void Update()
@@ -85,7 +98,13 @@ private void HandleBuildPhaseStarted(int waveNumber, float duration)
 
 private void HandleCombatPhaseStarted(int waveNumber)
     {
-        Announce("Wave " + waveNumber + "!");
+        // The final wave is a single boss, not a swarm - a flashing 'Wave 11!'
+        // reads as an anticlimax for a one-enemy encounter. Show its health
+        // bar in the exact same screen slot instead, for the whole fight.
+        if (WaveManager.Instance != null && waveNumber == WaveManager.Instance.TotalWaves)
+            ShowBossHealthBar();
+        else
+            Announce("Wave " + waveNumber + "!");
 
         if (skipBuildButton != null)
             skipBuildButton.gameObject.SetActive(false);
@@ -99,11 +118,80 @@ private void HandleCombatPhaseStarted(int waveNumber)
 
 private void HandleVictory()
     {
+        HideBossHealthBar(); // safety net - the boss's own OnDeath already hides it
         Announce("VICTORY!");
 
         if (skipBuildButton != null)
             skipBuildButton.gameObject.SetActive(false);
     }
+
+/// <summary>
+    /// Finds the boss already spawned by WaveManager, binds its Health to
+    /// the slider, and reveals the group. If the boss can't be found (a
+    /// bad wave/prefab setup), this quietly does nothing rather than show
+    /// an empty bar - the normal announcement is skipped either way, which
+    /// is an acceptable trade for how this is only ever reached once, on
+    /// the last wave.
+    /// </summary>
+    private void ShowBossHealthBar()
+    {
+        if (bossHealthBarGroup == null || bossHealthSlider == null)
+            return;
+
+        BossRammerAI boss = FindFirstObjectByType<BossRammerAI>();
+        if (boss == null)
+            return;
+
+        Health bossHealth = boss.GetComponent<Health>();
+        if (bossHealth == null)
+            return;
+
+        UnsubscribeBossHealth(); // in case of a leftover subscription somehow
+        trackedBossHealth = bossHealth;
+        trackedBossHealth.OnDamaged += HandleBossDamaged;
+        trackedBossHealth.OnDeath += HandleBossDeath;
+
+        if (bossNameLabel != null)
+            bossNameLabel.text = bossDisplayName;
+
+        bossHealthSlider.maxValue = trackedBossHealth.Max;
+        bossHealthSlider.value = trackedBossHealth.Current;
+
+        bossHealthBarGroup.alpha = 1f;
+    }
+
+    private void HandleBossDamaged(int current, int max)
+    {
+        if (bossHealthSlider == null)
+            return;
+
+        bossHealthSlider.maxValue = max;
+        bossHealthSlider.value = current;
+    }
+
+    private void HandleBossDeath()
+    {
+        HideBossHealthBar();
+    }
+
+    private void HideBossHealthBar()
+    {
+        UnsubscribeBossHealth();
+
+        if (bossHealthBarGroup != null)
+            bossHealthBarGroup.alpha = 0f;
+    }
+
+    private void UnsubscribeBossHealth()
+    {
+        if (trackedBossHealth == null)
+            return;
+
+        trackedBossHealth.OnDamaged -= HandleBossDamaged;
+        trackedBossHealth.OnDeath -= HandleBossDeath;
+        trackedBossHealth = null;
+    }
+
 
     private void HandleSkipClicked()
     {

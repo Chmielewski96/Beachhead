@@ -14,8 +14,11 @@ MonoBehaviour:
   m_EditorClassIdentifier: Assembly-CSharp::WaveData
   entries:
   - enemyPrefab: {fileID: 566076421293500731, guid: e60edd5576585470994766dd6149784e, type: 3}
-    count: 30
+    count: 50
   - enemyPrefab: {fileID: 1055756588727034923, guid: 60155481678c24ffe819d19c4ec7a25a, type: 3}
+    count: 6
+  - enemyPrefab: {fileID: 6558468323252243256, guid: f149477f191da4242bc9675a96e88faa, type: 3}
     count: 4
   buildPhaseDuration: 30
+  spawnInterval: 0.33333334
   spawnPointIndices: 

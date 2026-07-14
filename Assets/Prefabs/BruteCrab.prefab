@@ -69,7 +69,7 @@ NavMeshAgent:
   m_Height: 2
   m_BaseOffset: 1
   m_WalkableMask: 4294967295
-  m_ObstacleAvoidanceType: 4
+  m_ObstacleAvoidanceType: 0
 --- !u!114 &9085207802622197516
 MonoBehaviour:
   m_ObjectHideFlags: 0
@@ -82,7 +82,7 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: 8fe6907186f2949819ca7ffc7c3cce80, type: 3}
   m_Name: 
   m_EditorClassIdentifier: Assembly-CSharp::Health
-  maxHP: 120
+  maxHP: 150
 --- !u!114 &8658796598571583553
 MonoBehaviour:
   m_ObjectHideFlags: 0
@@ -95,7 +95,7 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: c31eb7ca96d324766bb56cf73bf8791c, type: 3}
   m_Name: 
   m_EditorClassIdentifier: Assembly-CSharp::CrabAI
-  aggroRadius: 6
+  aggroRadius: 9
   scanInterval: 0.25
   targetMask:
     serializedVersion: 2
@@ -104,18 +104,22 @@ MonoBehaviour:
     serializedVersion: 2
     m_Bits: 128
   blockedGapTolerance: 2.5
-  chaseLeashRadius: 6
+  chaseLeashRadius: 14
   blockerSearchRadius: 3
   unreachableRetargetTime: 2
   attackStyle: 1
+  commitToTarget: 1
   damage: 20
-  attackRange: 1.8
+  attackRange: 2.4
   attackCooldown: 2.5
   slamWindupDuration: 0.8
-  slamConeRange: 3
+  slamConeRange: 3.5
   slamConeAngle: 75
   slamKnockbackDistance: 3
   slamKnockbackDuration: 0.25
+  useIntermittentMovement: 0
+  gaitMoveDuration: 2
+  gaitPauseDuration: 1
   toppleDuration: 0.4
   corpseLingerTime: 1
 --- !u!114 &565397323892908406
@@ -146,7 +150,7 @@ MonoBehaviour:
   m_Name: 
   m_EditorClassIdentifier: Assembly-CSharp::ResourceBounty
   resourceType: 1
-  amount: 20
+  amount: 10
 --- !u!114 &3325084617845885492
 MonoBehaviour:
   m_ObjectHideFlags: 0

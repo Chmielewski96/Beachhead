@@ -109,9 +109,27 @@ public void StartPlacing(BuildingData data)
         currentData = data;
         ghostYRotation = 0f;
         ghost = Instantiate(data.ghostPrefab);
+        StripGhostColliders(ghost);
         ghostRenderers = GetTintableRenderers(ghost);
         ApplyRangeRingScale(ghost);
     }
+
+/// <summary>
+    /// Ghosts must NEVER carry colliders: a ghost collider on a blocking
+    /// layer fails its own validity check - and because the physics
+    /// broadphase lags one frame behind the transform, the failure is
+    /// position-dependent and maddeningly intermittent (moving the mouse
+    /// fast 'outruns' the stale collider and placement suddenly works).
+    /// This bug has now shipped on two different ghost prefabs (Tower,
+    /// Garrison), so the placer strips colliders in code and the prefab's
+    /// contents stop mattering.
+    /// </summary>
+    private static void StripGhostColliders(GameObject ghostInstance)
+    {
+        foreach (Collider c in ghostInstance.GetComponentsInChildren<Collider>(true))
+            Destroy(c);
+    }
+
 
     /// <summary>
     /// All renderers under the ghost EXCEPT anything on/under "RangeRing" -
@@ -222,7 +240,12 @@ private void HandleDebugHotkeys()
         ghost.transform.SetPositionAndRotation(snapped, rotation);
 
         isValid = CheckValidity(snapped, rotation);
-        TintGhost(isValid ? validColor : invalidColor);
+
+        // Red also when the spot is fine but the resources aren't - to the
+        // player it means 'can't place here right now' either way. isValid
+        // itself stays spatial-only: clicking a valid-but-unaffordable spot
+        // still runs TrySpendFor, whose refusal flashes the resource counter.
+        TintGhost(isValid && AffordableCount(currentData) >= 1 ? validColor : invalidColor);
     }
 
     private bool CheckValidity(Vector3 position, Quaternion rotation)
@@ -305,6 +328,7 @@ private void TintGhost(Color color)
         while (lineGhosts.Count < lineCells.Count)
         {
             GameObject g = Instantiate(currentData.ghostPrefab);
+            StripGhostColliders(g);
             ApplyRangeRingScale(g);
             lineGhosts.Add(g);
             lineGhostRenderers.Add(GetTintableRenderers(g));
@@ -318,12 +342,23 @@ private void TintGhost(Color color)
         }
 
         lineCellValid.Clear();
+
+        // Affordability preview for the whole line: only the first N valid
+        // cells (N = what the resources cover) show green, the rest red -
+        // matching exactly what the commit will actually place and skip.
+        int affordable = AffordableCount(currentData);
+        int affordableRank = 0;
         for (int i = 0; i < lineCells.Count; i++)
         {
             lineGhosts[i].transform.SetPositionAndRotation(lineCells[i], rotation);
             bool valid = CheckValidity(lineCells[i], rotation);
             lineCellValid.Add(valid);
-            TintRenderers(lineGhostRenderers[i], valid ? validColor : invalidColor);
+
+            bool payable = valid && affordableRank < affordable;
+            if (valid)
+                affordableRank++;
+
+            TintRenderers(lineGhostRenderers[i], payable ? validColor : invalidColor);
         }
     }
 
@@ -441,5 +476,27 @@ private bool TrySpendFor(BuildingData data)
 
         return true;
     }
+
+/// <summary>
+    /// How many copies of this building the current resources cover.
+    /// Read-only - unlike TrySpendFor it never fires OnSpendFailed, so
+    /// it's safe to call every frame for the ghost tint without making
+    /// the resource counters flash red continuously.
+    /// </summary>
+    private int AffordableCount(BuildingData data)
+    {
+        if (ResourceManager.Instance == null || data.costs == null || data.costs.Length == 0)
+            return int.MaxValue;
+
+        int count = int.MaxValue;
+        foreach (BuildingData.ResourceCost cost in data.costs)
+        {
+            if (cost.amount <= 0)
+                continue;
+            count = Mathf.Min(count, ResourceManager.Instance.GetAmount(cost.resource) / cost.amount);
+        }
+        return count;
+    }
+
 
 }

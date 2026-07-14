@@ -43,6 +43,22 @@ public class Health : MonoBehaviour
         }
     }
 
+/// <summary>
+    /// Restores HP, clamped to Max. Fires OnDamaged (it's really an
+    /// on-HP-changed event) so health bars refresh - for buildings that
+    /// also pops the fade-on-hit bar visible briefly, which doubles as
+    /// free repair feedback. Dead things stay dead - no resurrection.
+    /// </summary>
+    public void Heal(int amount)
+    {
+        if (IsDead || amount <= 0)
+            return;
+
+        Current = Mathf.Min(maxHP, Current + amount);
+        OnDamaged?.Invoke(Current, maxHP);
+    }
+
+
 /// <summary>Damage committed by in-flight projectiles (see Projectile) - lets towers avoid overkill.</summary>
     public int PendingDamage { get; private set; }
 

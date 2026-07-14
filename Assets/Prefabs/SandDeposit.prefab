@@ -306,6 +306,7 @@ MonoBehaviour:
   m_Name: 
   m_EditorClassIdentifier: Assembly-CSharp::ResourceDeposit
   resourceType: 0
+  unlimitedStock: 1
   remaining: 200
 --- !u!1 &8638592464467378255
 GameObject:

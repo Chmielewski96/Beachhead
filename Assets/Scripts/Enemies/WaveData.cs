@@ -22,6 +22,9 @@ public class WaveData : ScriptableObject
     [Tooltip("Build-phase countdown BEFORE this wave arrives.")]
     public float buildPhaseDuration = 30f;
 
+    [Tooltip("Seconds between individual enemy spawns - the wave trickles in instead of appearing as one simultaneous blob. 0 = the old everything-at-once behavior.")]
+    public float spawnInterval = 0.25f;
+
     [Tooltip("Indices into WaveManager's spawn point array that this wave uses. Leave EMPTY to use all of them.")]
     public int[] spawnPointIndices;
 }

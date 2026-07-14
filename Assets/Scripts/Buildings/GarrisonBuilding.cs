@@ -17,6 +17,16 @@ using UnityEngine.AI;
 /// </summary>
 public class GarrisonBuilding : MonoBehaviour
 {
+    /// <summary>Choose-one, permanent troop upgrade. Guardian = shielded
+    /// melee with more HP; Hunter = ranged (stop, aim, shoot, kite).</summary>
+    public enum Specialization { None, Guardian, Hunter }
+
+    /// <summary>Freely switchable squad orders (unlike Specialization).
+    /// Patrol: lap the building, fight what comes close. SeekAndDestroy:
+    /// hunt enemies anywhere, no leash. DefendPoint: hold a player-chosen
+    /// spot within CommandRange, reduced aggro, tight leash.</summary>
+    public enum Stance { Patrol, SeekAndDestroy, DefendPoint }
+
     [SerializeField] private GarrisonData data;
     [Tooltip("Where troops appear - an empty child just outside the building's footprint.")]
     [SerializeField] private Transform spawnPoint;
@@ -49,6 +59,31 @@ public class GarrisonBuilding : MonoBehaviour
     public int ReinforcementsUsed => bonusGarrison;
     public int MaxReinforcements => data.maxReinforcements;
 
+    private Stance stance = Stance.Patrol;
+    private Vector3 defendPoint;
+    public Stance CurrentStance => stance;
+    public float CommandRange => data.commandRange;
+
+    private Specialization specialization = Specialization.None;
+    public Specialization CurrentSpecialization => specialization;
+    public bool CanSpecialize => specialization == Specialization.None;
+    public int GuardianCost => data.guardianCost;
+    public int HunterCost => data.hunterCost;
+
+    /// <summary>The prefab this garrison currently spawns - falls back to
+    /// the base soldier if a specialization prefab was never assigned.</summary>
+    private GameObject ActiveTroopPrefab
+    {
+        get
+        {
+            if (specialization == Specialization.Guardian && data.guardianPrefab != null)
+                return data.guardianPrefab;
+            if (specialization == Specialization.Hunter && data.hunterPrefab != null)
+                return data.hunterPrefab;
+            return data.soldierPrefab;
+        }
+    }
+
 
     private void Start()
     {
@@ -78,6 +113,13 @@ public class GarrisonBuilding : MonoBehaviour
     private void TickGroupPatrol()
     {
         if (activeTroops.Count == 0)
+            return;
+
+        // Only the Patrol stance advances the lap. DefendPoint pins the
+        // formation at the ordered spot (slots were assigned when the
+        // order landed); SeekAndDestroy troops likewise idle at their
+        // last slots between hunts rather than parading in a circle.
+        if (stance != Stance.Patrol)
             return;
 
         patrolTimer -= Time.deltaTime;
@@ -177,31 +219,40 @@ public class GarrisonBuilding : MonoBehaviour
         }
     }
 
-    private void SpawnTroop()
+private void SpawnTroop()
     {
-        if (data.soldierPrefab == null || spawnPoint == null)
+        if (ActiveTroopPrefab == null || spawnPoint == null)
             return;
 
         Vector3 position = spawnPoint.position;
         if (NavMesh.SamplePosition(position, out NavMeshHit hit, 3f, NavMesh.AllAreas))
             position = hit.position;
 
-        GameObject troopObject = Instantiate(data.soldierPrefab, position, Quaternion.identity);
+        SpawnTroopAt(position, Quaternion.identity);
+
+        // Fold the newcomer into the CURRENT formation target - the squad
+        // keeps walking its lap; the fresh spawn catches up at hurry speed.
+        AssignFormationSlots();
+    }
+
+private void SpawnTroopAt(Vector3 position, Quaternion rotation)
+    {
+        GameObject troopObject = Instantiate(ActiveTroopPrefab, position, rotation);
 
         SoldierAI soldier = troopObject.GetComponent<SoldierAI>();
         if (soldier != null)
+        {
             soldier.Init(transform.position, data.patrolRadius);
+            soldier.SetStance(stance, defendPoint); // newcomers match the squad's current orders
+        }
 
         Health troopHealth = troopObject.GetComponent<Health>();
         if (troopHealth != null)
             troopHealth.OnDeath += () => HandleTroopDeath(soldier);
 
         activeTroops.Add(soldier);
-
-        // Fold the newcomer into the CURRENT formation target - the squad
-        // keeps walking its lap; the fresh spawn catches up at hurry speed.
-        AssignFormationSlots();
     }
+
 
     private void HandleTroopDeath(SoldierAI soldier)
     {
@@ -230,4 +281,115 @@ public class GarrisonBuilding : MonoBehaviour
         bonusGarrison++;
         return true;
     }
+
+/// <summary>
+    /// Switches the squad's orders. For DefendPoint, the point must land
+    /// within CommandRange of the garrison AND on walkable ground - a
+    /// rejected order returns false and leaves the current stance intact
+    /// (the panel keeps its targeting mode alive so the player can just
+    /// click again somewhere valid). Every living troop is updated
+    /// immediately; fresh spawns inherit the stance in SpawnTroopAt.
+    /// </summary>
+    public bool TrySetStance(Stance newStance, Vector3 point)
+    {
+        if (newStance == Stance.DefendPoint)
+        {
+            if (Vector3.Distance(transform.position, point) > data.commandRange)
+                return false;
+
+            if (!NavMesh.SamplePosition(point, out NavMeshHit hit, 3f, NavMesh.AllAreas))
+                return false; // clicked on something that isn't standable ground
+
+            defendPoint = hit.position;
+        }
+
+        stance = newStance;
+        ApplyStanceToTroops();
+
+        if (newStance == Stance.DefendPoint)
+        {
+            // Pin the formation at the ordered spot, facing away from the
+            // garrison - guards look OUTWARD from what they protect.
+            Vector3 outward = defendPoint - transform.position;
+            outward.y = 0f;
+            if (outward.sqrMagnitude > 0.01f)
+                lastFacing = Quaternion.LookRotation(outward.normalized, Vector3.up);
+
+            lastPatrolPoint = defendPoint;
+            AssignFormationSlots();
+        }
+        else if (newStance == Stance.Patrol)
+        {
+            // Resume the lap from beside the building, first step promptly.
+            lastPatrolPoint = spawnPoint != null ? spawnPoint.position : transform.position;
+            AssignFormationSlots();
+            patrolTimer = 1f;
+        }
+
+        return true;
+    }
+
+    private void ApplyStanceToTroops()
+    {
+        foreach (SoldierAI troop in activeTroops)
+        {
+            if (troop != null)
+                troop.SetStance(stance, defendPoint);
+        }
+    }
+
+
+/// <summary>
+    /// Choose-one, PERMANENT upgrade: Guardians (shielded, more HP) or
+    /// Hunters (ranged). Spends shells, then swaps every living troop in
+    /// place. Driven by the BuildingInfoPanel buttons.
+    /// </summary>
+    public bool TrySpecialize(Specialization choice)
+    {
+        if (!CanSpecialize || choice == Specialization.None)
+            return false;
+
+        GameObject prefab = choice == Specialization.Guardian ? data.guardianPrefab : data.hunterPrefab;
+        if (prefab == null)
+        {
+            Debug.LogWarning("Garrison specialization prefab missing on " + data.name);
+            return false;
+        }
+
+        int cost = choice == Specialization.Guardian ? data.guardianCost : data.hunterCost;
+        if (ResourceManager.Instance != null &&
+            !ResourceManager.Instance.TrySpend(ResourceType.Shells, cost))
+            return false;
+
+        specialization = choice;
+        ReplaceLivingTroops();
+        return true;
+    }
+
+/// <summary>
+    /// Swap every living troop for the new specialization IN PLACE - same
+    /// position, same facing, no vulnerability window. Destroy (not death)
+    /// deliberately skips the topple/respawn path: Health.OnDeath never
+    /// fires, so the pool count is managed purely by this list rebuild.
+    /// </summary>
+    private void ReplaceLivingTroops()
+    {
+        List<SoldierAI> oldTroops = new List<SoldierAI>(activeTroops);
+        activeTroops.Clear();
+
+        foreach (SoldierAI troop in oldTroops)
+        {
+            if (troop == null)
+                continue;
+
+            Vector3 position = troop.transform.position;
+            Quaternion rotation = troop.transform.rotation;
+            Destroy(troop.gameObject);
+            SpawnTroopAt(position, rotation);
+        }
+
+        AssignFormationSlots();
+    }
+
+
 }

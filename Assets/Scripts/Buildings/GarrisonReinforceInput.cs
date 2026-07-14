@@ -1,15 +1,13 @@
 using UnityEngine;
 
 /// <summary>
-/// TEMPORARY until the Phase 9 build/selection UI: press U with the mouse
-/// over a garrison building to buy a Reinforce upgrade (+1 max garrison,
-/// costs shells). Insufficient shells flashes the shell counter via the
+/// Press U while a garrison building is SELECTED to buy a Reinforce upgrade.
+/// Selection-based rather than hover-based, so it works from anywhere on
+/// the map. Insufficient shells flashes the shell counter via the
 /// usual OnSpendFailed event - no extra wiring needed.
 /// </summary>
 public class GarrisonReinforceInput : MonoBehaviour
 {
-    [SerializeField] private LayerMask buildingMask;
-
 private void Update()
     {
         if (PauseManager.Instance != null && PauseManager.Instance.IsPaused)
@@ -21,10 +19,13 @@ private void Update()
         if (!Input.GetKeyDown(KeyCode.U))
             return;
 
-        if (!MouseWorld.TryGetObjectUnderMouse(buildingMask, out Collider hit))
+        if (SelectionManager.Instance == null || SelectionManager.Instance.SelectedBuilding == null)
             return;
 
-        GarrisonBuilding garrison = hit.GetComponentInParent<GarrisonBuilding>();
+        BuildingSelectable building = SelectionManager.Instance.SelectedBuilding;
+        GarrisonBuilding garrison = building.GetComponentInParent<GarrisonBuilding>();
+        if (garrison == null)
+            garrison = building.GetComponentInChildren<GarrisonBuilding>();
         if (garrison == null)
             return;
 

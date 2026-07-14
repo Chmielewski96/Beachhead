@@ -61,6 +61,15 @@ public class WorkerAI : MonoBehaviour
             keepCollider = Keep.Instance.GetComponentInChildren<Collider>();
     }
 
+private void OnDestroy()
+    {
+        // Free the node the moment this worker leaves the world, so a
+        // replacement recruit can take over the deposit immediately.
+        if (assignedNode != null)
+            assignedNode.Release(this);
+    }
+
+
     private void Update()
     {
         switch (state)
@@ -77,18 +86,28 @@ public class WorkerAI : MonoBehaviour
     }
 
     /// <summary>Player right-clicked a resource node with this worker selected.</summary>
-    public void AssignDeposit(ResourceDeposit node)
+public void AssignDeposit(ResourceDeposit node)
     {
+        // Switching nodes hands the old one back to the pool immediately.
+        if (assignedNode != null && assignedNode != node)
+            assignedNode.Release(this);
+
         assignedNode = node;
         nodeCollider = node != null ? node.GetComponentInChildren<Collider>() : null;
 
         if (assignedNode != null)
+        {
+            assignedNode.Claim(this);
             EnterState(State.MovingToNode);
+        }
     }
 
     /// <summary>Player right-clicked plain ground: a direct order is law - cancel the gather loop.</summary>
-    public void OnManualMoveOrder()
+public void OnManualMoveOrder()
     {
+        if (assignedNode != null)
+            assignedNode.Release(this);
+
         assignedNode = null;
         nodeCollider = null;
         EnterState(State.Idle);
@@ -225,7 +244,7 @@ private void TickIdle()
         TryAutoAssignNearestNode();
     }
 
-    private void TryAutoAssignNearestNode()
+private void TryAutoAssignNearestNode()
     {
         ResourceDeposit[] allNodes = FindObjectsByType<ResourceDeposit>(FindObjectsSortMode.None);
 
@@ -235,6 +254,12 @@ private void TickIdle()
         foreach (ResourceDeposit node in allNodes)
         {
             if (node.IsEmpty)
+                continue;
+
+            // One worker per node - taken nodes are invisible to everyone
+            // else, which spreads the workforce evenly across deposits
+            // instead of piling onto whichever node is nearest the Keep.
+            if (node.IsClaimedByOther(this))
                 continue;
 
             float distance = Vector3.Distance(transform.position, node.transform.position);

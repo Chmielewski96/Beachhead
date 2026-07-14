@@ -21,6 +21,10 @@ public class SoldierAI : MonoBehaviour
 {
     private enum State { Patrolling, Attacking }
 
+    // Same pattern as CrabAI.AttackStyle: one script, behavior picked per
+    // prefab. Melee = the original soldier; Ranged = the Hunter upgrade.
+    private enum CombatStyle { Melee, Ranged }
+
     [Header("Patrol")]
     [SerializeField] private float scanInterval = 0.4f;
 
@@ -44,6 +48,32 @@ public class SoldierAI : MonoBehaviour
     [Tooltip("Buildings on these layers block the soldier's sight - an enemy behind an intact wall is invisible until it breaches or comes around. The Keep never blocks sight (soldiers see across the courtyard).")]
     [SerializeField] private LayerMask sightBlockerMask;
 
+    [Header("Combat Style")]
+    [Tooltip("Melee: walk up and hit. Ranged (Hunter): stop, aim, shoot - and kite away when the enemy closes in.")]
+    [SerializeField] private CombatStyle combatStyle = CombatStyle.Melee;
+
+    [Header("Ranged (Hunters only - ignored for Melee)")]
+    [SerializeField] private GameObject arrowPrefab;
+    [Tooltip("Preferred shooting distance. Beyond it the hunter advances; inside kiteDistance it backs off.")]
+    [SerializeField] private float shootRange = 7f;
+    [SerializeField] private float projectileSpeed = 14f;
+    [Tooltip("Seconds of standing still before a shot can loose - moving (advancing, kiting) spoils the aim.")]
+    [SerializeField] private float aimDuration = 0.5f;
+    [Tooltip("An enemy closer than this makes the hunter step away before shooting again.")]
+    [SerializeField] private float kiteDistance = 3f;
+    [Tooltip("How far each kite step retreats.")]
+    [SerializeField] private float kiteStepDistance = 2.5f;
+    [Tooltip("A crowded hunter only kites once every N shots - kiting on every single frame it's crowded made hunters nearly unkillable, since they'd retreat before anything could ever reach them. Between kites they stand their ground and keep shooting point-blank.")]
+    [SerializeField] private int kiteEveryShots = 2;
+    [Tooltip("Flash color that fades IN over the aim, reaching full brightness right as the arrow looses, then cuts to zero.")]
+    [SerializeField] private Color aimFlashColor = Color.white;
+
+    [Header("Stances (driven by the GarrisonBuilding)")]
+    [Tooltip("Defend Point multiplies the aggro radius by this - posted guards watch their spot, they don't roam after everything they can see.")]
+    [SerializeField] private float defendAggroMultiplier = 0.6f;
+    [Tooltip("Defend Point leash: max chase distance from the DEFENDED POINT (not the garrison). Small on purpose - the whole point of the stance is staying put.")]
+    [SerializeField] private float defendLeashDistance = 6f;
+
 
     [Header("Death")]
     [SerializeField] private float toppleDuration = 0.4f;
@@ -51,6 +81,7 @@ public class SoldierAI : MonoBehaviour
 
     private NavMeshAgent agent;
     private Health selfHealth;
+    private HitFlash hitFlash;
     private State state = State.Patrolling;
     private Vector3 homePoint;
     private Vector3 patrolDestination;
@@ -58,11 +89,38 @@ public class SoldierAI : MonoBehaviour
     private Collider targetCollider;
     private float scanTimer;
     private float attackTimer;
+    private float aimTimer;
+    private int shotsSinceKite;
+    private bool isKiting; // true for the WHOLE retreat, not just the triggering frame
+
+    private GarrisonBuilding.Stance stance = GarrisonBuilding.Stance.Patrol;
+    private Vector3 defendAnchor;
+
+    // Every aggro/leash decision below routes through these three so each
+    // stance is defined in exactly one place:
+    //   Patrol         - normal aggro, leash from HOME, sight rules apply.
+    //   SeekAndDestroy - unlimited aggro, NO leash, sees through walls
+    //                    (they're hunting, not standing watch).
+    //   DefendPoint    - reduced aggro, tight leash from the DEFENDED
+    //                    point, sight rules apply.
+    private float EffectiveAggroRadius =>
+        stance == GarrisonBuilding.Stance.SeekAndDestroy ? 9999f :
+        stance == GarrisonBuilding.Stance.DefendPoint ? aggroRadius * defendAggroMultiplier :
+        aggroRadius;
+
+    private Vector3 LeashAnchor =>
+        stance == GarrisonBuilding.Stance.DefendPoint ? defendAnchor : homePoint;
+
+    private float EffectiveLeashDistance =>
+        stance == GarrisonBuilding.Stance.SeekAndDestroy ? float.MaxValue :
+        stance == GarrisonBuilding.Stance.DefendPoint ? defendLeashDistance :
+        chaseLeashDistance;
 
     private void Awake()
     {
         agent = GetComponent<NavMeshAgent>();
         selfHealth = GetComponent<Health>();
+        hitFlash = GetComponentInChildren<HitFlash>();
         selfHealth.OnDeath += HandleDeath;
 
         // Same corridor-traffic lesson as the crabs: equals never yield.
@@ -89,6 +147,21 @@ public class SoldierAI : MonoBehaviour
     {
         homePoint = home;
         patrolDestination = home;
+    }
+
+    /// <summary>
+    /// Called by the GarrisonBuilding whenever the player switches the
+    /// squad's stance (and on every fresh spawn, so newcomers match the
+    /// squad). anchor is the defended point for DefendPoint; ignored
+    /// otherwise. No state reset needed here - the leash/aggro checks all
+    /// read the effective values live, so a soldier mid-chase self-corrects
+    /// on its very next tick (a too-far target gets dropped by the new
+    /// leash; a suddenly-visible one gets acquired by the next scan).
+    /// </summary>
+    public void SetStance(GarrisonBuilding.Stance newStance, Vector3 anchor)
+    {
+        stance = newStance;
+        defendAnchor = anchor;
     }
 
     /// <summary>
@@ -147,22 +220,28 @@ public class SoldierAI : MonoBehaviour
         }
     }
 
-    private void TickAttacking()
+private void TickAttacking()
     {
         agent.speed = hurrySpeed; // combat is never leisurely
 
         if (targetHealth == null || targetHealth.IsDead)
         {
+            isKiting = false;
+            ClearAimFlash();
             // Fight's over - another enemy right here, or back to formation?
             if (!TryAcquireTarget())
                 EnterPatrolling();
             return;
         }
 
-        // Leash is measured from HOME: soldiers defend a place. A crab
-        // kiting a soldier away from its post stops working at this line.
-        if (Vector3.Distance(transform.position, homePoint) > chaseLeashDistance)
+        // Leash is measured from the stance's anchor (home for Patrol, the
+        // defended point for DefendPoint; Seek & Destroy has no leash at
+        // all). A crab kiting a soldier away from its post stops working
+        // at this line.
+        if (Vector3.Distance(transform.position, LeashAnchor) > EffectiveLeashDistance)
         {
+            isKiting = false;
+            ClearAimFlash();
             EnterPatrolling();
             return;
         }
@@ -170,6 +249,14 @@ public class SoldierAI : MonoBehaviour
         Vector3 closestPoint = targetCollider.ClosestPoint(transform.position);
         float distance = Vector3.Distance(transform.position, closestPoint);
 
+        if (combatStyle == CombatStyle.Melee)
+            TickMelee(closestPoint, distance);
+        else
+            TickRanged(closestPoint, distance);
+    }
+
+private void TickMelee(Vector3 closestPoint, float distance)
+    {
         if (distance > attackRange)
         {
             agent.isStopped = false;
@@ -187,9 +274,155 @@ public class SoldierAI : MonoBehaviour
         }
     }
 
-    private bool TryAcquireTarget()
+/// <summary>
+    /// The Hunter loop: stop -> aim -> shoot -> kite when crowded.
+    /// Movement of any kind (advancing, kiting) resets the aim; the bow
+    /// cooldown keeps ticking regardless, so a hunter that kites and
+    /// resettles fires almost immediately once the aim completes.
+    /// </summary>
+private void TickRanged(Vector3 closestPoint, float distance)
     {
-        Collider[] hits = Physics.OverlapSphere(transform.position, aggroRadius, enemyMask);
+        attackTimer -= Time.deltaTime;
+
+        // Mid-retreat: keep moving until we've actually put distance
+        // between us and the target (or arrived at the retreat point).
+        // Without this, the very next frame after triggering a kite would
+        // fall into the aim branch below - which sets isStopped=true and
+        // cancels the retreat after a single frame (a few centimeters,
+        // effectively invisible). That was the whole bug: kiting WAS
+        // triggering, it just never got to actually happen.
+        if (isKiting)
+        {
+            if (distance >= kiteDistance * 1.3f || (!agent.pathPending && agent.remainingDistance <= agent.stoppingDistance + 0.1f))
+            {
+                isKiting = false; // safely spaced out (or arrived) - resume normal behavior
+            }
+            else
+            {
+                agent.isStopped = false;
+                return;
+            }
+        }
+
+        // Enemy in our face: only kite once every kiteEveryShots shots -
+        // kiting on every crowded frame let hunters retreat before
+        // anything could ever reach them, which made them unkillable.
+        // Between kites they hold ground and keep firing point-blank,
+        // taking their lumps like the Melee soldier would.
+        if (distance < kiteDistance && shotsSinceKite >= kiteEveryShots)
+        {
+            Vector3 away = transform.position - closestPoint;
+            away.y = 0f;
+            if (away.sqrMagnitude < 0.01f)
+                away = -transform.forward;
+            away.Normalize();
+
+            Vector3 retreat = transform.position + away * kiteStepDistance;
+            if (Vector3.Distance(retreat, LeashAnchor) > EffectiveLeashDistance)
+                retreat = transform.position + (LeashAnchor - transform.position).normalized * kiteStepDistance;
+
+            if (NavMesh.SamplePosition(retreat, out NavMeshHit navHit, 2f, NavMesh.AllAreas))
+                retreat = navHit.position;
+
+            agent.isStopped = false;
+            agent.SetDestination(retreat);
+            aimTimer = aimDuration; // moving spoils the aim
+            shotsSinceKite = 0;
+            isKiting = true;
+            ClearAimFlash();
+            return;
+        }
+
+        // Too far to shoot - close the gap. (Note: this can't trigger for
+        // a hunter that's merely close-but-not-kiting, since kiteDistance
+        // is always well under shootRange.)
+        if (distance > shootRange)
+        {
+            agent.isStopped = false;
+            agent.SetDestination(closestPoint);
+            aimTimer = aimDuration;
+            ClearAimFlash();
+            return;
+        }
+
+        // In range (whether at the preferred distance or crowded and
+        // tolerating it) - plant feet, turn to face, aim, loose.
+        agent.isStopped = true;
+        FaceTarget(closestPoint);
+
+        // Overkill hand-off: if in-flight arrows already account for this
+        // target, switch to one that still needs shooting (if any).
+        if (targetHealth.EffectiveHP <= 0 && TryAcquireTarget())
+        {
+            ClearAimFlash();
+            return;
+        }
+
+        // Fade the flash in as the aim progresses - 0 the instant aiming
+        // starts, full brightness right as the shot looses. Driven by
+        // whichever of aimTimer/attackTimer is the ACTUAL bottleneck, not
+        // just aimTimer alone: attackCooldown is often longer than
+        // aimDuration (aim finishes, but the bow still isn't ready), and
+        // computing progress from aimTimer alone made the glow peak at
+        // full white the moment aiming finished, then just sit there fully
+        // lit for however long the cooldown had left - looking stuck.
+        // Taking the MAX of the two remaining fractions means progress
+        // only reaches 1 at the exact frame Shoot() actually fires.
+        float aimFraction = aimDuration > 0f ? Mathf.Clamp01(aimTimer / aimDuration) : 0f;
+        float cooldownFraction = attackCooldown > 0f ? Mathf.Clamp01(attackTimer / attackCooldown) : 0f;
+        float progress = 1f - Mathf.Max(aimFraction, cooldownFraction);
+        if (hitFlash != null)
+            hitFlash.SetSustainedTint(aimFlashColor, progress);
+
+        aimTimer -= Time.deltaTime;
+        if (aimTimer <= 0f && attackTimer <= 0f)
+            Shoot();
+    }
+
+private void ClearAimFlash()
+    {
+        if (hitFlash != null)
+            hitFlash.ClearSustainedTint();
+    }
+
+
+private void Shoot()
+    {
+        attackTimer = attackCooldown;
+        shotsSinceKite++;
+
+        // Fresh aim cycle starting now: cut the flash to zero immediately
+        // (the release) and restart the fade-in for the next shot.
+        aimTimer = aimDuration;
+        ClearAimFlash();
+
+        if (arrowPrefab == null || targetHealth == null)
+            return;
+
+        Vector3 spawnPosition = transform.position + Vector3.up * 0.8f;
+        GameObject arrowObject = Instantiate(arrowPrefab, spawnPosition, Quaternion.identity);
+        Projectile arrow = arrowObject.GetComponent<Projectile>();
+        if (arrow != null)
+            arrow.Init(targetHealth, damage, projectileSpeed); // reserves pending damage - tower-style overkill prevention for free
+    }
+
+private void FaceTarget(Vector3 point)
+    {
+        Vector3 direction = point - transform.position;
+        direction.y = 0f;
+        if (direction.sqrMagnitude < 0.01f)
+            return;
+
+        transform.rotation = Quaternion.Slerp(transform.rotation, Quaternion.LookRotation(direction), 10f * Time.deltaTime);
+    }
+
+
+
+
+
+private bool TryAcquireTarget()
+    {
+        Collider[] hits = Physics.OverlapSphere(transform.position, EffectiveAggroRadius, enemyMask);
 
         float bestDistance = float.MaxValue;
         Health bestHealth = null;
@@ -201,8 +434,29 @@ public class SoldierAI : MonoBehaviour
             if (candidate == null || candidate.IsDead)
                 continue;
 
-            if (!HasLineOfSight(hit))
+            // Seek & Destroy hunts by knowledge, not sight - a squad sent
+            // out to kill shouldn't stand idle just because a wall hides
+            // its prey. The other stances are standing watch and only
+            // react to what they can actually see.
+            if (stance != GarrisonBuilding.Stance.SeekAndDestroy && !HasLineOfSight(hit))
                 continue; // wall in the way - can't see it, don't chase it
+
+            // Hunters borrow the towers' overkill prevention: a target whose
+            // EffectiveHP is already zero (arrows in flight will finish it)
+            // isn't worth another arrow.
+            if (combatStyle == CombatStyle.Ranged && candidate.EffectiveHP <= 0)
+                continue;
+
+            // Leash-aware acquisition: never lock onto an enemy the leash
+            // wouldn't let us actually fight. Without this, an enemy just
+            // beyond the leash gets acquired (it's within aggro of the
+            // soldier), chased until the home-distance leash trips,
+            // dropped, re-acquired on the next scan... an infinite yo-yo.
+            // The soldier simply doesn't SEE enemies beyond its patrol
+            // duty; they become visible again the moment they come closer.
+            Vector3 pointNearHome = hit.ClosestPoint(LeashAnchor);
+            if (Vector3.Distance(LeashAnchor, pointNearHome) > EffectiveLeashDistance)
+                continue;
 
             float distance = Vector3.Distance(transform.position, hit.ClosestPoint(transform.position));
             if (distance < bestDistance)
@@ -219,6 +473,7 @@ public class SoldierAI : MonoBehaviour
         targetHealth = bestHealth;
         targetCollider = bestCollider;
         attackTimer = attackCooldown * 0.5f;
+        aimTimer = aimDuration; // fresh engagement starts the glow at 0, not partway through
         state = State.Attacking;
         return true;
     }
@@ -264,8 +519,11 @@ public class SoldierAI : MonoBehaviour
         }
     }
 
-    private void HandleDeath()
+private void HandleDeath()
     {
+        isKiting = false;
+        ClearAimFlash();
+
         // A unit can die while standing OFF the mesh (shoved into a wall's
         // carve fringe by attackers) - isStopped throws on an off-mesh
         // agent. Disabling is always safe.

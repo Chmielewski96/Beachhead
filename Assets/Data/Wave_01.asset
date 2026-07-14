@@ -16,4 +16,5 @@ MonoBehaviour:
   - enemyPrefab: {fileID: 566076421293500731, guid: e60edd5576585470994766dd6149784e, type: 3}
     count: 4
   buildPhaseDuration: 60
+  spawnInterval: 0.5
   spawnPointIndices: 

@@ -45,6 +45,8 @@ public class CrabAI : MonoBehaviour
 
     [Header("Attack")]
     [SerializeField] private AttackStyle attackStyle = AttackStyle.SingleTarget;
+    [Tooltip("Once a target is chosen, stick with it until it dies: no leash drop on fleeing units, no switching to closer units mid-fight, no abandoning a wall when a breach opens elsewhere. The crowding fallback (switching wall segments when physically unable to reach) still applies - that's anti-stuck, not distraction. Brute flavor: single-minded.")]
+    [SerializeField] private bool commitToTarget = false;
     [SerializeField] private int damage = 5;
     [Tooltip("Measured from the closest point on the target's collider, not its center - so big buildings are hittable from any side.")]
     [SerializeField] private float attackRange = 1.2f;
@@ -56,6 +58,12 @@ public class CrabAI : MonoBehaviour
     [SerializeField] private float slamConeAngle = 75f;
     [SerializeField] private float slamKnockbackDistance = 3f;
     [SerializeField] private float slamKnockbackDuration = 0.25f;
+
+    [Header("Intermittent Movement (heavy/boss units - default off)")]
+    [Tooltip("When enabled, movement alternates between a MOVE window and a full STOP window instead of moving continuously - a slow, weighty stomping gait. Only ever forces a stop; never overrides a stop the attack logic already wanted (e.g. standing in range), so it composes safely with everything above.")]
+    [SerializeField] private bool useIntermittentMovement = false;
+    [SerializeField] private float gaitMoveDuration = 2f;
+    [SerializeField] private float gaitPauseDuration = 1f;
 
     [Header("Death")]
     [SerializeField] private float toppleDuration = 0.4f;
@@ -73,10 +81,14 @@ public class CrabAI : MonoBehaviour
     private float approachTimer;
     private float closestApproach = float.MaxValue;
     private bool isWindingUp;
+    private Vector3 coastVelocity;
     private Coroutine windupRoutine;
     private Renderer[] renderers;
     private Color[] baseColors;
     private MaterialPropertyBlock glowBlock;
+    private float gaitTimer;
+    private bool gaitPaused;
+    private bool wantsToMove = true; // what the state logic decided THIS frame, independent of gait
 
     private static readonly int BaseColorId = Shader.PropertyToID("_BaseColor");
 
@@ -102,6 +114,7 @@ public class CrabAI : MonoBehaviour
                 : Color.white;
         }
         glowBlock = new MaterialPropertyBlock();
+        gaitTimer = gaitMoveDuration;
     }
 
     private void OnDestroy()
@@ -118,7 +131,7 @@ public class CrabAI : MonoBehaviour
         MarchToKeep();
     }
 
-    private void Update()
+private void Update()
     {
         // Same guard pattern as Turtling's IsDead flag: never act after death.
         if (selfHealth.IsDead)
@@ -137,6 +150,17 @@ public class CrabAI : MonoBehaviour
             return;
         }
 
+        // Anti-stunlock: every building placed carves the NavMesh, which
+        // invalidates paths crossing the carve - and while the replacement
+        // path computes, the agent brakes to a stop. Spamming wall
+        // placement therefore used to freeze the whole wave in place.
+        // Instead, coast on the last real velocity until the fresh path
+        // arrives; the recalculation only takes a few frames.
+        if (agent.pathPending && !agent.isStopped)
+            agent.velocity = coastVelocity;
+        else
+            coastVelocity = agent.velocity;
+
         // Committed to a slam windup: hold position and direction (the
         // frozen-at-action-start pattern - dodgeable by design).
         if (isWindingUp)
@@ -151,10 +175,37 @@ public class CrabAI : MonoBehaviour
                 TickAttacking();
                 break;
         }
+
+        // Stomping gait: re-asserted EVERY frame (not just on transitions),
+        // as the logical AND of "gait says pause" and "combat/marching
+        // actually wants to move" (wantsToMove, set above). This fixes two
+        // bugs from an earlier version that only forced isStopped=true
+        // during the pause and only touched it again on the transition
+        // edge: (1) TickMarching never re-asserts isStopped on its own, so
+        // the crab could get stuck stopped forever after the first pause;
+        // and (2) forcing isStopped=false unconditionally on that same
+        // transition edge would un-stop the crab even while it was
+        // legitimately holding position mid-attack, letting it creep
+        // forward into its target a little more every gait cycle. Reading
+        // wantsToMove fresh every frame means gait can never override a
+        // real combat-stop, in either direction.
+        if (useIntermittentMovement && agent.enabled && agent.isOnNavMesh)
+        {
+            gaitTimer -= Time.deltaTime;
+            if (gaitTimer <= 0f)
+            {
+                gaitPaused = !gaitPaused;
+                gaitTimer = gaitPaused ? gaitPauseDuration : gaitMoveDuration;
+            }
+
+            agent.isStopped = gaitPaused || !wantsToMove;
+        }
     }
 
     private void TickMarching()
     {
+        wantsToMove = true; // marching has no reason to stop other than the gait
+
         scanTimer -= Time.deltaTime;
         if (scanTimer <= 0f)
         {
@@ -164,7 +215,7 @@ public class CrabAI : MonoBehaviour
         }
     }
 
-    private void TickAttacking()
+private void TickAttacking()
     {
         // Target died (or its GameObject was destroyed) - resume the march.
         if (targetHealth == null || targetHealth.IsDead)
@@ -179,16 +230,20 @@ public class CrabAI : MonoBehaviour
         {
             // Leash check: a unit that outran the chase gets dropped, and the
             // crab re-acquires - nearest unit still in aggro range wins, or
-            // it resumes the march if nobody's around.
-            float targetDistance = Vector3.Distance(transform.position, targetCollider.ClosestPoint(transform.position));
-            if (targetDistance > chaseLeashRadius)
+            // it resumes the march if nobody's around. A COMMITTED crab
+            // (Brute) skips this entirely: the chase ends when someone dies.
+            if (!commitToTarget)
             {
-                if (!TryAcquireTarget())
-                    MarchToKeep();
-                return;
+                float targetDistance = Vector3.Distance(transform.position, targetCollider.ClosestPoint(transform.position));
+                if (targetDistance > chaseLeashRadius)
+                {
+                    if (!TryAcquireTarget())
+                        MarchToKeep();
+                    return;
+                }
             }
         }
-        else
+        else if (!commitToTarget)
         {
             // While chewing on a building, periodically re-evaluate:
             scanTimer -= Time.deltaTime;
@@ -219,15 +274,25 @@ public class CrabAI : MonoBehaviour
         // still 'far away' because the center is meters inside the building.
         Vector3 closestPoint = targetCollider.ClosestPoint(transform.position);
         float distance = Vector3.Distance(transform.position, closestPoint);
+        wantsToMove = distance > attackRange; // mirrors the branch below - this is what the gait reads
 
         if (distance > attackRange)
         {
             agent.isStopped = false;
-            agent.SetDestination(closestPoint);
+
+            // Re-issue the destination only when it has actually drifted.
+            // The old per-frame SetDestination flooded the async path queue
+            // (every crab, every frame), so when a freshly placed building
+            // forced a global repath the queue was already saturated and
+            // the stall grew long enough to feel like a stun.
+            if (!agent.pathPending && (agent.destination - closestPoint).sqrMagnitude > 0.25f)
+                agent.SetDestination(closestPoint);
 
             // Crowding fallback (buildings only - the leash handles units):
             // no progress toward our wall for a while means every attack slot
             // is taken. Switch to a neighboring segment of the same blockade.
+            // This stays on even for committed crabs - it's anti-stuck, not
+            // target flightiness.
             if (!targetIsUnit)
             {
                 if (distance < closestApproach - 0.05f)

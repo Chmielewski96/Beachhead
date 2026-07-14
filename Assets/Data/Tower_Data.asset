@@ -19,7 +19,7 @@ MonoBehaviour:
   - resource: 0
     amount: 50
   - resource: 1
-    amount: 20
+    amount: 30
   footprint: {x: 2, y: 2}
   range: 10
   damage: 10

@@ -142,7 +142,7 @@ NavMeshAgent:
   m_Height: 2
   m_BaseOffset: 1
   m_WalkableMask: 4294967295
-  m_ObstacleAvoidanceType: 4
+  m_ObstacleAvoidanceType: 0
 --- !u!114 &4054128398749977065
 MonoBehaviour:
   m_ObjectHideFlags: 0
@@ -180,9 +180,19 @@ MonoBehaviour:
   chaseLeashRadius: 6
   blockerSearchRadius: 3
   unreachableRetargetTime: 2
+  attackStyle: 0
+  commitToTarget: 0
   damage: 5
   attackRange: 1.2
   attackCooldown: 1
+  slamWindupDuration: 0.8
+  slamConeRange: 3
+  slamConeAngle: 75
+  slamKnockbackDistance: 3
+  slamKnockbackDuration: 0.25
+  useIntermittentMovement: 0
+  gaitMoveDuration: 2
+  gaitPauseDuration: 1
   toppleDuration: 0.4
   corpseLingerTime: 1
 --- !u!114 &4734792983032224639

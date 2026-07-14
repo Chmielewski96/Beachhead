@@ -46,4 +46,70 @@ public class PlacedBuilding : MonoBehaviour
 
         Destroy(gameObject);
     }
+
+/// <summary>True if this building has HP missing (and isn't already rubble).</summary>
+    public bool CanRepair()
+    {
+        Health health = GetComponent<Health>();
+        return health != null && !health.IsDead && health.Current < health.Max;
+    }
+
+    /// <summary>
+    /// Repair pricing: half the build cost, scaled by the fraction of HP
+    /// missing - patching a scratch is cheap, rebuilding a near-ruin costs
+    /// about half of what a fresh one would (at which point demolish +
+    /// rebuild is the break-even alternative, which feels right).
+    /// Multi-resource costs scale each component the same way, minimum 1
+    /// of each once there's any damage at all - repairs are never free.
+    /// </summary>
+    public int GetRepairCost(BuildingData.ResourceCost cost, float missingFraction)
+    {
+        return Mathf.Max(1, Mathf.CeilToInt(cost.amount * 0.5f * missingFraction));
+    }
+
+    /// <summary>Panel-friendly one-liner, e.g. "12 Sand + 5 Shells".</summary>
+    public string DescribeRepairCost()
+    {
+        Health health = GetComponent<Health>();
+        if (health == null || data == null || data.costs == null)
+            return "";
+
+        float missingFraction = 1f - (float)health.Current / health.Max;
+        string text = "";
+        foreach (BuildingData.ResourceCost cost in data.costs)
+        {
+            if (text.Length > 0)
+                text += " + ";
+            text += GetRepairCost(cost, missingFraction) + " " + cost.resource;
+        }
+        return text;
+    }
+
+    /// <summary>
+    /// Spends the repair cost ATOMICALLY (all resources or none - same
+    /// contract as the placer) and heals to full. Returns false if the
+    /// building isn't damaged or any single resource falls short.
+    /// </summary>
+    public bool TryRepair()
+    {
+        if (!CanRepair() || data == null || data.costs == null || ResourceManager.Instance == null)
+            return false;
+
+        Health health = GetComponent<Health>();
+        float missingFraction = 1f - (float)health.Current / health.Max;
+
+        // Affordability check for EVERY resource before spending ANY.
+        foreach (BuildingData.ResourceCost cost in data.costs)
+        {
+            if (ResourceManager.Instance.GetAmount(cost.resource) < GetRepairCost(cost, missingFraction))
+                return false;
+        }
+
+        foreach (BuildingData.ResourceCost cost in data.costs)
+            ResourceManager.Instance.TrySpend(cost.resource, GetRepairCost(cost, missingFraction));
+
+        health.Heal(health.Max - health.Current);
+        return true;
+    }
+
 }

@@ -1,4 +1,5 @@
 using System;
+using System.Collections;
 using System.Collections.Generic;
 using UnityEngine;
 
@@ -35,6 +36,13 @@ public class WaveManager : MonoBehaviour
     public event Action<int> OnEnemiesAliveChanged;      // (aliveCount)
 
     private int waveIndex;
+
+    // Guards the wave-clear check while a staggered spawn is still running:
+    // without it, towers killing the first trickle of enemies before the
+    // rest have spawned would drop EnemiesAlive to 0 and prematurely end
+    // the wave (starting the next build phase WHILE enemies keep spawning).
+    private bool isSpawning;
+    private Coroutine spawnRoutine;
 
     private void Awake()
     {
@@ -96,15 +104,29 @@ private void Update()
         OnBuildPhaseStarted?.Invoke(CurrentWaveNumber, BuildTimeRemaining);
     }
 
-    private void StartCombatPhase()
+private void StartCombatPhase()
     {
         CurrentPhase = Phase.Combat;
-        SpawnWave(waves[waveIndex]);
+
+        if (spawnRoutine != null)
+            StopCoroutine(spawnRoutine);
+        spawnRoutine = StartCoroutine(SpawnWaveRoutine(waves[waveIndex]));
+
         OnCombatPhaseStarted?.Invoke(CurrentWaveNumber);
     }
 
-    private void SpawnWave(WaveData wave)
+/// <summary>
+    /// Staggered spawning: one enemy every spawnInterval seconds, in a
+    /// SHUFFLED order (entries interleave - crabs, brutes, and jellyfish
+    /// arrive mixed together rather than sorted by type). Introduced when
+    /// inter-unit avoidance was turned off: with overlap allowed, an
+    /// everything-at-once spawn stacks into a single simultaneous blob
+    /// that hits the defenses as one spike.
+    /// </summary>
+    private IEnumerator SpawnWaveRoutine(WaveData wave)
     {
+        isSpawning = true;
+
         // Resolve which spawn points this wave uses (empty list = all).
         List<Transform> activePoints = new List<Transform>();
         if (wave.spawnPointIndices != null && wave.spawnPointIndices.Length > 0)
@@ -116,37 +138,66 @@ private void Update()
         if (activePoints.Count == 0)
             activePoints.AddRange(spawnPoints);
 
+        // Flatten all entries into one list, then Fisher-Yates shuffle so
+        // the composition stays mixed for the whole spawn window.
+        List<GameObject> spawnQueue = new List<GameObject>();
         foreach (WaveData.SpawnEntry entry in wave.entries)
         {
             if (entry.enemyPrefab == null)
                 continue;
-
             for (int i = 0; i < entry.count; i++)
-            {
-                Transform point = activePoints[UnityEngine.Random.Range(0, activePoints.Count)];
-                Vector2 scatter = UnityEngine.Random.insideUnitCircle * scatterRadius;
-                Vector3 position = point.position + new Vector3(scatter.x, 0f, scatter.y);
-
-                GameObject enemy = Instantiate(entry.enemyPrefab, position, Quaternion.identity);
-
-                Health health = enemy.GetComponent<Health>();
-                if (health != null)
-                {
-                    health.OnDeath += HandleEnemyDeath;
-                    EnemiesAlive++;
-                }
-            }
+                spawnQueue.Add(entry.enemyPrefab);
+        }
+        for (int i = spawnQueue.Count - 1; i > 0; i--)
+        {
+            int j = UnityEngine.Random.Range(0, i + 1);
+            GameObject tmp = spawnQueue[i];
+            spawnQueue[i] = spawnQueue[j];
+            spawnQueue[j] = tmp;
         }
 
-        OnEnemiesAliveChanged?.Invoke(EnemiesAlive);
+        foreach (GameObject prefab in spawnQueue)
+        {
+            Transform point = activePoints[UnityEngine.Random.Range(0, activePoints.Count)];
+            Vector2 scatter = UnityEngine.Random.insideUnitCircle * scatterRadius;
+            Vector3 position = point.position + new Vector3(scatter.x, 0f, scatter.y);
+
+            GameObject enemy = Instantiate(prefab, position, Quaternion.identity);
+
+            Health health = enemy.GetComponent<Health>();
+            if (health != null)
+            {
+                health.OnDeath += HandleEnemyDeath;
+                EnemiesAlive++;
+                OnEnemiesAliveChanged?.Invoke(EnemiesAlive);
+            }
+
+            if (wave.spawnInterval > 0f)
+                yield return new WaitForSeconds(wave.spawnInterval);
+        }
+
+        isSpawning = false;
+        spawnRoutine = null;
+
+        // Edge case: the player killed every spawned enemy BEFORE the
+        // spawn window finished - the death handler was suppressed by
+        // isSpawning, so the clear check has to happen here instead.
+        CheckWaveCleared();
     }
 
-    private void HandleEnemyDeath()
+private void HandleEnemyDeath()
     {
         EnemiesAlive = Mathf.Max(0, EnemiesAlive - 1);
         OnEnemiesAliveChanged?.Invoke(EnemiesAlive);
 
-        if (CurrentPhase != Phase.Combat || EnemiesAlive > 0)
+        CheckWaveCleared();
+    }
+
+private void CheckWaveCleared()
+    {
+        // isSpawning: the wave isn't over while stragglers are still
+        // arriving, no matter what the alive count momentarily says.
+        if (CurrentPhase != Phase.Combat || isSpawning || EnemiesAlive > 0)
             return;
 
         OnWaveCleared?.Invoke(CurrentWaveNumber);
@@ -156,11 +207,11 @@ private void Update()
             CurrentPhase = Phase.Victory;
             OnVictory?.Invoke();
             Debug.Log("VICTORY - all waves cleared!");
-            // Phase 9: GameManager.Instance.TriggerVictory();
         }
         else
         {
             BeginBuildPhase(waveIndex + 1);
         }
     }
+
 }

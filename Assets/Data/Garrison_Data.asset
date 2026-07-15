@@ -17,17 +17,18 @@ MonoBehaviour:
   ghostPrefab: {fileID: 1080371925048244663, guid: 7c881969d1c70490898f6d399ddca03f, type: 3}
   costs:
   - resource: 0
-    amount: 80
+    amount: 100
   - resource: 1
-    amount: 50
+    amount: 90
   footprint: {x: 3, y: 3}
   soldierPrefab: {fileID: 3723640576916174473, guid: bd95de278d5ac460182fdaa91f0b00c4, type: 3}
   maxGarrison: 2
   respawnCooldown: 8
-  patrolRadius: 10
+  patrolRadius: 8
+  commandRange: 18
   reinforceCost: 50
   maxReinforcements: 2
   guardianPrefab: {fileID: 3723640576916174473, guid: ac3a89002f4d1410c81d0f9d7051207a, type: 3}
-  guardianCost: 60
+  guardianCost: 100
   hunterPrefab: {fileID: 3723640576916174473, guid: da6a67c62567f410ebdbd1458f4df297, type: 3}
-  hunterCost: 60
+  hunterCost: 100

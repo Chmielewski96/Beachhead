@@ -54,7 +54,15 @@ public class Health : MonoBehaviour
         if (IsDead || amount <= 0)
             return;
 
-        Current = Mathf.Min(maxHP, Current + amount);
+        int healed = Mathf.Min(maxHP, Current + amount);
+        if (healed == Current)
+            return; // already at Max (or would stay put) - a genuine no-op, so no event either.
+                     // Without this guard, healing something already at full HP still fired
+                     // OnDamaged, which is exactly why BuildingHealthBar (which shows itself on
+                     // ANY OnDamaged, damage or heal alike) was popping up on undamaged buildings
+                     // every time WaveEndBuildingHealer's blanket end-of-wave Heal() call swept past them.
+
+        Current = healed;
         OnDamaged?.Invoke(Current, maxHP);
     }
 

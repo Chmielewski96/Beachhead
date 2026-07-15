@@ -14,22 +14,32 @@ public class Tower : MonoBehaviour
     [SerializeField] private Transform firePoint;
     [SerializeField] private float retargetInterval = 0.25f;
 
-    [Header("Cannon Turret (optional - leave empty for a non-turreted tower)")]
-    [Tooltip("The rotating part - assign the tilted 'Cannon' child on the Cannon upgrade. Only its YAW is driven; whatever tilt you sculpted into its rest rotation is preserved every frame.")]
+    [Header("Turret Rotation (optional - leave empty for a non-turreted tower; shared by Cannon's barrel AND Lens's lens, despite the field names)")]
+    [Tooltip("The rotating part - the tilted 'Cannon' child on the Cannon upgrade, or the 'Lens' child on the Lens upgrade. Only its YAW is driven; whatever tilt you sculpted into its rest rotation is preserved every frame.")]
     [SerializeField] private Transform cannonPivot;
     [SerializeField] private float turretTurnSpeed = 180f;
-    [Tooltip("Correction applied to the computed yaw - the code assumes the barrel's modeled forward axis points at the target BEFORE this offset. Tune this instead of the Cannon's own Transform: TickCannonTurret overwrites the yaw every frame, so a manual edit in the Inspector gets silently discarded the instant Play mode starts.")]
+    [Tooltip("Correction applied to the computed yaw - the code assumes the modeled forward axis points at the target BEFORE this offset. Tune this instead of the pivot's own Transform: TickCannonTurret overwrites the yaw every frame, so a manual edit in the Inspector gets silently discarded the instant Play mode starts. Cannon needs 90 - Lens may need a completely different value since it's a different mesh.")]
     [SerializeField] private float cannonYawOffset = 90f;
+
+    [Header("Attack Material Swap (optional - e.g. Lens's glow while beaming)")]
+    [Tooltip("Renderer whose material swaps while actively attacking - e.g. the Lens mesh. Leave null to skip entirely.")]
+    [SerializeField] private Renderer attackMaterialRenderer;
+    [SerializeField] private Material attackMaterial;
 
     private Health target;
     private float retargetTimer;
     private float fireTimer;
     private Vector3 cannonRestTilt;
+    private Material defaultMaterial;
+    private bool isShowingAttackMaterial;
 
     private void Awake()
     {
         if (cannonPivot != null)
             cannonRestTilt = cannonPivot.localEulerAngles;
+
+        if (attackMaterialRenderer != null)
+            defaultMaterial = attackMaterialRenderer.sharedMaterial;
     }
 
     private void Update()
@@ -42,6 +52,7 @@ public class Tower : MonoBehaviour
         }
 
         TickCannonTurret();
+        TickAttackMaterial();
 
         if (target == null || target.IsDead)
             return;
@@ -50,8 +61,35 @@ public class Tower : MonoBehaviour
         if (fireTimer <= 0f)
         {
             fireTimer = data.fireCooldown;
-            Fire();
+            if (data.useBeamAttack)
+                TickBeam();
+            else
+                Fire();
         }
+    }
+
+    /// <summary>
+    /// True while this tower has a live target AND is a beam-style tower -
+    /// exactly the condition a beam VFX script should use to decide
+    /// whether to be visible at all this frame.
+    /// </summary>
+    public bool IsBeamActive => data != null && data.useBeamAttack && target != null && !target.IsDead;
+
+    /// <summary>Where a beam VFX should start - the same firePoint discrete projectiles spawn from.</summary>
+    public Vector3 BeamStartPoint => firePoint != null ? firePoint.position : transform.position;
+
+    /// <summary>Where a beam VFX should end - the target's body, not its feet (matches Projectile's own AimHeightOffset convention).</summary>
+    public Vector3 BeamEndPoint => target != null ? target.transform.position + Vector3.up * 0.5f : transform.position;
+
+    /// <summary>
+    /// The Lens Tower's whole point: no projectile, no travel time, damage
+    /// applies the instant the tick fires. fireCooldown IS the tick
+    /// interval (0.25s) and damage IS the per-tick amount (8) - both
+    /// already generic fields, nothing beam-specific needed for the numbers.
+    /// </summary>
+    private void TickBeam()
+    {
+        target.TakeDamage(data.damage);
     }
 
 private void AcquireTarget()
@@ -115,7 +153,30 @@ private void TickCannonTurret()
     }
 
 
-    private void Fire()
+    /// <summary>
+    /// Swaps to attackMaterial while IsBeamActive (or, for a non-beam
+    /// tower, while it has a live target at all - the closest generic
+    /// equivalent of "currently engaged"), reverting to whatever the
+    /// renderer originally had the instant that's no longer true. Only
+    /// touches the renderer on an actual state CHANGE, not every frame.
+    /// </summary>
+    private void TickAttackMaterial()
+    {
+        if (attackMaterialRenderer == null || attackMaterial == null)
+            return;
+
+        bool shouldShowAttack = data != null && data.useBeamAttack
+            ? IsBeamActive
+            : (target != null && !target.IsDead);
+
+        if (shouldShowAttack == isShowingAttackMaterial)
+            return;
+
+        isShowingAttackMaterial = shouldShowAttack;
+        attackMaterialRenderer.sharedMaterial = shouldShowAttack ? attackMaterial : defaultMaterial;
+    }
+
+private void Fire()
     {
         if (data.projectilePrefab == null || firePoint == null)
             return;
@@ -128,27 +189,40 @@ private void TickCannonTurret()
 
 public string DisplayName => data != null && !string.IsNullOrEmpty(data.buildingName) ? data.buildingName : "Tower";
 
-    public bool CanUpgradeToCannon => data.cannonUpgradeData != null;
+public bool CanUpgradeToCannon => data.cannonUpgradeData != null;
     public int CannonUpgradeCost => data.cannonUpgradeData != null ? data.cannonUpgradeCost : 0;
+    public bool TryUpgradeToCannon() => TryUpgradeTo(data.cannonUpgradeData, data.cannonUpgradeCost);
 
-    public bool TryUpgradeToCannon()
+    public bool CanUpgradeToLens => data.lensUpgradeData != null;
+    public int LensUpgradeCost => data.lensUpgradeData != null ? data.lensUpgradeCost : 0;
+    public bool TryUpgradeToLens() => TryUpgradeTo(data.lensUpgradeData, data.lensUpgradeCost);
+
+    /// <summary>
+    /// Shared by both upgrade paths - identical swap-in-place mechanics,
+    /// just a different target data/prefab/cost. Choosing either one
+    /// naturally locks out the OTHER too: the new prefab's own TowerData
+    /// has both cannonUpgradeData and lensUpgradeData left null, so
+    /// CanUpgradeToCannon/CanUpgradeToLens both read false afterward
+    /// without any extra bookkeeping - same choose-one guarantee
+    /// GarrisonBuilding's specialization gets from its own enum check.
+    /// </summary>
+    private bool TryUpgradeTo(TowerData upgradeData, int cost)
     {
-        if (!CanUpgradeToCannon)
+        if (upgradeData == null)
             return false;
 
         if (ResourceManager.Instance != null &&
-            !ResourceManager.Instance.TrySpend(ResourceType.Shells, data.cannonUpgradeCost))
+            !ResourceManager.Instance.TrySpend(ResourceType.Shells, cost))
             return false;
 
         Vector3 position = transform.position;
         Quaternion rotation = transform.rotation;
-        GameObject upgradedPrefab = data.cannonUpgradeData.prefab;
-        TowerData upgradedData = data.cannonUpgradeData;
+        GameObject upgradedPrefab = upgradeData.prefab;
 
         Destroy(gameObject);
 
         GameObject newTower = Instantiate(upgradedPrefab, position, rotation);
-        newTower.AddComponent<PlacedBuilding>().Init(upgradedData);
+        newTower.AddComponent<PlacedBuilding>().Init(upgradeData);
 
         return true;
     }

@@ -1955,6 +1955,8 @@ MonoBehaviour:
   cannonPivot: {fileID: 1140493356427112758}
   turretTurnSpeed: 180
   cannonYawOffset: 90
+  attackMaterialRenderer: {fileID: 0}
+  attackMaterial: {fileID: 0}
 --- !u!114 &1553118267272137696
 MonoBehaviour:
   m_ObjectHideFlags: 0

@@ -1,4 +1,5 @@
 using System.Collections;
+using System.Collections.Generic;
 using UnityEngine;
 using UnityEngine.AI;
 
@@ -68,6 +69,18 @@ public class SoldierAI : MonoBehaviour
     [Tooltip("Flash color that fades IN over the aim, reaching full brightness right as the arrow looses, then cuts to zero.")]
     [SerializeField] private Color aimFlashColor = Color.white;
 
+    [Header("AoE Slash (optional - Guardian only, ignored otherwise)")]
+    [Tooltip("If true, the melee hit becomes a small cone slash in front of the soldier instead of a single-target hit - damage still uses the same 'damage' field above, applied to everyone the cone catches.")]
+    [SerializeField] private bool useAoeSlash = false;
+    [SerializeField] private float slashRadius = 2.2f;
+    [Tooltip("Full cone width in degrees, centered on the soldier's forward - keep this modest, it's meant to catch 'a few enemies right in front', not everything nearby.")]
+    [SerializeField] private float slashAngle = 100f;
+    [Tooltip("The visual sword swing - assign the 'Sword' child. Leave null to skip the animation entirely (damage/AoE still work fine without it).")]
+    [SerializeField] private Transform swordPivot;
+    [SerializeField] private float swordSwingAngle = 90f;
+    [Tooltip("Very quick on purpose - a snappy slash, not a telegraphed windup like the Brute's slam. Each half (out and back) takes this long.")]
+    [SerializeField] private float swordSwingDuration = 0.08f;
+
     [Header("Stances (driven by the GarrisonBuilding)")]
     [Tooltip("Defend Point multiplies the aggro radius by this - posted guards watch their spot, they don't roam after everything they can see.")]
     [SerializeField] private float defendAggroMultiplier = 0.6f;
@@ -92,6 +105,7 @@ public class SoldierAI : MonoBehaviour
     private float aimTimer;
     private int shotsSinceKite;
     private bool isKiting; // true for the WHOLE retreat, not just the triggering frame
+    private Coroutine swordSwingRoutine;
 
     private GarrisonBuilding.Stance stance = GarrisonBuilding.Stance.Patrol;
     private Vector3 defendAnchor;
@@ -270,13 +284,83 @@ private void TickMelee(Vector3 closestPoint, float distance)
         else
         {
             agent.isStopped = true;
+            FaceTarget(closestPoint);
+
             attackTimer -= Time.deltaTime;
             if (attackTimer <= 0f)
             {
                 attackTimer = attackCooldown;
-                targetHealth.TakeDamage(damage);
+                if (useAoeSlash)
+                    PerformAoeSlash();
+                else
+                    targetHealth.TakeDamage(damage);
             }
         }
+    }
+
+    /// <summary>
+    /// A small forward cone instead of a single-target hit - "a few
+    /// enemies right in front of him", not a battlefield-wide sweep. No
+    /// windup, no frozen-direction telegraph, no knockback (unlike the
+    /// Brute's ConeSlam this is modeled on) - Guardians are meant to read
+    /// as quick, responsive fighters, not a slow heavy hitter, and a
+    /// shielded defensive unit shoving enemies around didn't feel like the
+    /// right fit anyway. Easy to bolt on later via KnockbackReceiver if
+    /// that changes - the pattern's identical to CrabAI's own slam.
+    /// </summary>
+    private void PerformAoeSlash()
+    {
+        if (swordPivot != null)
+        {
+            if (swordSwingRoutine != null)
+                StopCoroutine(swordSwingRoutine);
+            swordSwingRoutine = StartCoroutine(SwingSword());
+        }
+
+        Vector3 origin = transform.position;
+        Collider[] hits = Physics.OverlapSphere(origin, slashRadius, enemyMask);
+        HashSet<Health> alreadyHit = new HashSet<Health>();
+
+        foreach (Collider hit in hits)
+        {
+            Health victim = hit.GetComponentInParent<Health>();
+            if (victim == null || victim.IsDead || alreadyHit.Contains(victim))
+                continue;
+
+            Vector3 toVictim = hit.ClosestPoint(origin) - origin;
+            toVictim.y = 0f;
+            if (toVictim.sqrMagnitude > 0.0001f && Vector3.Angle(transform.forward, toVictim) > slashAngle * 0.5f)
+                continue; // outside the forward cone - behind or to the side doesn't get hit
+
+            alreadyHit.Add(victim);
+            victim.TakeDamage(damage);
+        }
+    }
+
+    /// <summary>Quick out-and-back swing, Y axis only - a fast slash flourish, not a slow telegraph.</summary>
+    private IEnumerator SwingSword()
+    {
+        Quaternion start = swordPivot.localRotation;
+        Quaternion swung = start * Quaternion.Euler(0f, swordSwingAngle, 0f);
+
+        float elapsed = 0f;
+        while (elapsed < swordSwingDuration)
+        {
+            elapsed += Time.deltaTime;
+            swordPivot.localRotation = Quaternion.Slerp(start, swung, elapsed / swordSwingDuration);
+            yield return null;
+        }
+        swordPivot.localRotation = swung;
+
+        elapsed = 0f;
+        while (elapsed < swordSwingDuration)
+        {
+            elapsed += Time.deltaTime;
+            swordPivot.localRotation = Quaternion.Slerp(swung, start, elapsed / swordSwingDuration);
+            yield return null;
+        }
+        swordPivot.localRotation = start;
+        swordSwingRoutine = null;
     }
 
 /// <summary>

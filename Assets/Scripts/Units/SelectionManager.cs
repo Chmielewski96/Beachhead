@@ -29,6 +29,8 @@ public class SelectionManager : MonoBehaviour
 
 
     [Header("Drag Box UI")]
+    [Tooltip("Off for now - no use case yet for multi-unit drag-select. Flip back on to re-enable; the rest of the drag logic is untouched, just gated behind this.")]
+    [SerializeField] private bool enableDragSelect = false;
     [Tooltip("A UI Image's RectTransform, anchored/pivoted to (0,0), parented directly under the Canvas.")]
     [SerializeField] private RectTransform dragBoxVisual;
     [SerializeField] private Canvas parentCanvas;
@@ -89,6 +91,9 @@ public class SelectionManager : MonoBehaviour
 
     private void UpdateDrag()
     {
+        if (!enableDragSelect)
+            return; // isDragging simply never becomes true - EndDrag always takes the single-click path
+
         float dragDistance = Vector2.Distance(dragStartScreenPos, Input.mousePosition);
 
         if (!isDragging && dragDistance > dragThresholdPixels)

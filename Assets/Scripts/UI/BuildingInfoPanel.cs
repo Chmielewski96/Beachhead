@@ -46,10 +46,13 @@ public class BuildingInfoPanel : MonoBehaviour
     [Tooltip("Button tint for the stances not currently active.")]
     [SerializeField] private Color stanceIdleColor = new Color(0.35f, 0.35f, 0.4f);
 
-    [Header("Tower Cannon Upgrade")]
+    [Header("Tower Upgrades (choose-one, side by side, like Garrison's Guardian/Hunter)")]
     [Tooltip("Shown only while a Tower that CAN upgrade (data.cannonUpgradeData != null) is selected.")]
     [SerializeField] private Button cannonButton;
     [SerializeField] private TMP_Text cannonButtonLabel;
+    [Tooltip("Shown only while a Tower that CAN upgrade to Lens (data.lensUpgradeData != null) is selected.")]
+    [SerializeField] private Button lensButton;
+    [SerializeField] private TMP_Text lensButtonLabel;
 
     [Header("Keep: Worker Shovels")]
     [Tooltip("Shown only while the Keep is selected AND shovels haven't been purchased yet - one-time, permanent.")]
@@ -86,6 +89,8 @@ public class BuildingInfoPanel : MonoBehaviour
             defendButton.onClick.AddListener(BeginDefendPointTargeting);
         if (cannonButton != null)
             cannonButton.onClick.AddListener(ChooseCannonUpgrade);
+        if (lensButton != null)
+            lensButton.onClick.AddListener(ChooseLensUpgrade);
         if (shovelsButton != null)
             shovelsButton.onClick.AddListener(ChooseShovels);
 
@@ -113,6 +118,8 @@ public class BuildingInfoPanel : MonoBehaviour
             defendButton.onClick.RemoveListener(BeginDefendPointTargeting);
         if (cannonButton != null)
             cannonButton.onClick.RemoveListener(ChooseCannonUpgrade);
+        if (lensButton != null)
+            lensButton.onClick.RemoveListener(ChooseLensUpgrade);
         if (shovelsButton != null)
             shovelsButton.onClick.RemoveListener(ChooseShovels);
     }
@@ -121,6 +128,12 @@ public class BuildingInfoPanel : MonoBehaviour
     {
         if (currentTower != null)
             currentTower.TryUpgradeToCannon();
+    }
+
+    private void ChooseLensUpgrade()
+    {
+        if (currentTower != null)
+            currentTower.TryUpgradeToLens();
     }
 
     private void ChooseShovels()
@@ -180,6 +193,7 @@ public class BuildingInfoPanel : MonoBehaviour
             SetSpecializeButtonsVisible(false);
             SetStanceButtonsVisible(false);
             SetCannonButtonVisible(false);
+            SetLensButtonVisible(false);
             SetShovelsButtonVisible(false);
         }
         if (panelRoot != null)
@@ -190,11 +204,20 @@ public class BuildingInfoPanel : MonoBehaviour
     {
         TickDefendPointTargeting();
 
-        if (current == null)
+        // ReferenceEquals, NOT ==: Unity overrides == on UnityEngine.Object
+        // to treat a DESTROYED-but-still-referenced object as "null" too -
+        // which meant this check used to catch that case FIRST and return
+        // early, before the destroy-cleanup branch right below it ever got
+        // a chance to run. That branch was dead code: current was never
+        // actually reset, panelRoot never deactivated, and a just-upgraded
+        // (destroyed) tower's stale info just sat there until the player
+        // selected something else and overwrote current for real.
+        if (ReferenceEquals(current, null))
             return;
 
-        // The building might have been destroyed while selected.
-        if (current.gameObject == null)
+        // The building might have been destroyed while selected - THIS is
+        // exactly the case Unity's overridden == is built to catch.
+        if (current == null)
         {
             HandleSelectionChanged(null);
             return;
@@ -211,6 +234,7 @@ public class BuildingInfoPanel : MonoBehaviour
             SetSpecializeButtonsVisible(false);
             SetStanceButtonsVisible(false);
             SetCannonButtonVisible(false);
+            SetLensButtonVisible(false);
             UpdateShovelsButton(keep);
             SetText("The Keep", BuildKeepText(keep));
             return;
@@ -223,6 +247,7 @@ public class BuildingInfoPanel : MonoBehaviour
             UpdateSpecializeButtons(garrison);
             UpdateStanceButtons(garrison);
             SetCannonButtonVisible(false);
+            SetLensButtonVisible(false);
             SetShovelsButtonVisible(false);
             SetText("Garrison", BuildRepairLine(garrison) + BuildGarrisonText(garrison));
             return;
@@ -235,6 +260,7 @@ public class BuildingInfoPanel : MonoBehaviour
             SetSpecializeButtonsVisible(false);
             SetStanceButtonsVisible(false);
             UpdateCannonButton(tower);
+            UpdateLensButton(tower);
             SetShovelsButtonVisible(false);
             SetText(tower.DisplayName, BuildRepairLine(current));
             return;
@@ -243,6 +269,7 @@ public class BuildingInfoPanel : MonoBehaviour
         SetSpecializeButtonsVisible(false);
         SetStanceButtonsVisible(false);
         SetCannonButtonVisible(false);
+        SetLensButtonVisible(false);
         SetShovelsButtonVisible(false);
         SetText(current.gameObject.name, BuildRepairLine(current));
     }
@@ -400,6 +427,29 @@ public class BuildingInfoPanel : MonoBehaviour
     {
         if (cannonButton != null && cannonButton.gameObject.activeSelf != visible)
             cannonButton.gameObject.SetActive(visible);
+    }
+
+    private void UpdateLensButton(Tower tower)
+    {
+        bool show = tower.CanUpgradeToLens;
+        SetLensButtonVisible(show);
+        if (!show)
+            return;
+
+        int shells = ResourceManager.Instance != null
+            ? ResourceManager.Instance.GetAmount(ResourceType.Shells)
+            : 0;
+
+        if (lensButton != null)
+            lensButton.interactable = shells >= tower.LensUpgradeCost;
+        if (lensButtonLabel != null)
+            lensButtonLabel.text = "Upgrade: Lens\n" + tower.LensUpgradeCost + " shells";
+    }
+
+    private void SetLensButtonVisible(bool visible)
+    {
+        if (lensButton != null && lensButton.gameObject.activeSelf != visible)
+            lensButton.gameObject.SetActive(visible);
     }
 
     private void UpdateShovelsButton(KeepWorkerRecruiter keep)

@@ -16,19 +16,20 @@ MonoBehaviour:
   prefab: {fileID: 7235621933748794961, guid: 2991ce20860d24166be84ac298dde477, type: 3}
   ghostPrefab: {fileID: 0}
   costs:
-  - resource: 0
-    amount: 60
   - resource: 1
-    amount: 40
+    amount: 120
   footprint: {x: 2, y: 2}
-  range: 10
-  damage: 30
-  fireCooldown: 1.8
+  range: 12
+  damage: 10
+  fireCooldown: 2.5
   projectilePrefab: {fileID: 285364894546975700, guid: 8e0ce0186c99d4d2e8955aa2c30c937d, type: 3}
   projectileSpeed: 12
   splashRadius: 3.5
-  splashDamage: 20
+  splashDamage: 10
   projectileArcHeight: 2.2
   impactEffectPrefab: {fileID: 42228191117075091, guid: 6bbefedf120464e879f849fcb1041f9a, type: 3}
+  useBeamAttack: 0
   cannonUpgradeData: {fileID: 0}
   cannonUpgradeCost: 0
+  lensUpgradeData: {fileID: 0}
+  lensUpgradeCost: 120

@@ -27,6 +27,7 @@ public class WaveHUD : MonoBehaviour
     [SerializeField] private TMP_Text bossNameLabel;
     [SerializeField] private UnityEngine.UI.Slider bossHealthSlider;
     [SerializeField] private string bossDisplayName = "GIANT PALM CRAB";
+    [SerializeField] private float bossHealthBarFadeTime = 0.6f;
 
     [Header("One-time Hints")]
     [Tooltip("Separate from the announcement label on purpose - the wave-cleared announcement and this hint can land at almost the same moment, and they shouldn't fight over the same text.")]
@@ -38,6 +39,7 @@ public class WaveHUD : MonoBehaviour
 
     private Coroutine announcementRoutine;
     private Coroutine hintRoutine;
+    private Coroutine bossHealthBarFadeRoutine;
     private Health trackedBossHealth;
     private bool hasShownHealHint;
 
@@ -176,7 +178,23 @@ private void HandleVictory()
         bossHealthSlider.maxValue = trackedBossHealth.Max;
         bossHealthSlider.value = trackedBossHealth.Current;
 
+        if (bossHealthBarFadeRoutine != null)
+            StopCoroutine(bossHealthBarFadeRoutine);
+        bossHealthBarFadeRoutine = StartCoroutine(FadeBossHealthBarIn());
+    }
+
+    private IEnumerator FadeBossHealthBarIn()
+    {
+        float elapsed = 0f;
+        while (elapsed < bossHealthBarFadeTime)
+        {
+            elapsed += Time.unscaledDeltaTime;
+            bossHealthBarGroup.alpha = Mathf.Clamp01(elapsed / bossHealthBarFadeTime);
+            yield return null;
+        }
+
         bossHealthBarGroup.alpha = 1f;
+        bossHealthBarFadeRoutine = null;
     }
 
     private void HandleBossDamaged(int current, int max)
@@ -196,6 +214,12 @@ private void HandleVictory()
     private void HideBossHealthBar()
     {
         UnsubscribeBossHealth();
+
+        if (bossHealthBarFadeRoutine != null)
+        {
+            StopCoroutine(bossHealthBarFadeRoutine);
+            bossHealthBarFadeRoutine = null;
+        }
 
         if (bossHealthBarGroup != null)
             bossHealthBarGroup.alpha = 0f;

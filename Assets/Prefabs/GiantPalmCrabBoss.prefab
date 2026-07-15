@@ -60,7 +60,7 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: 8fe6907186f2949819ca7ffc7c3cce80, type: 3}
   m_Name: 
   m_EditorClassIdentifier: Assembly-CSharp::Health
-  maxHP: 4000
+  maxHP: 6000
 --- !u!114 &565397323892908406
 MonoBehaviour:
   m_ObjectHideFlags: 0
@@ -156,6 +156,7 @@ MonoBehaviour:
   windupFlashColor: {r: 1, g: 1, b: 1, a: 1}
   dashDistance: 1.5
   dashDuration: 0.15
+  postAttackCooldown: 1.5
   toppleDuration: 0.4
   corpseLingerTime: 1
 --- !u!1 &1884569467906082815

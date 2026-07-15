@@ -30,8 +30,17 @@ public class TowerData : BuildingData
     [Tooltip("Optional VFX spawned at the exact moment of impact - leave null for a plain hit (the default tower's arrow).")]
     public GameObject impactEffectPrefab;
 
-    [Header("Cannon Upgrade")]
+    [Header("Beam Attack (0 = normal discrete projectiles, the default tower and Cannon)")]
+    [Tooltip("If true, this tower ignores projectilePrefab entirely: damage ticks directly every fireCooldown seconds with NO travel time - the Lens Tower's instant-connect sunbeam. fireCooldown becomes the tick interval and damage becomes the per-tick amount.")]
+    public bool useBeamAttack = false;
+
+    [Header("Cannon Upgrade (choose-one with Lens, like Garrison's Guardian/Hunter)")]
     [Tooltip("If set, a tower using THIS data can pay cannonUpgradeCost to become this instead - swaps the GameObject in place. Leave null on the Cannon's own data so no further upgrade is offered.")]
     public TowerData cannonUpgradeData;
     public int cannonUpgradeCost = 40;
+
+    [Header("Lens Upgrade (choose-one with Cannon)")]
+    [Tooltip("Same pattern as cannonUpgradeData - leave null on the Lens's own data so no further upgrade is offered.")]
+    public TowerData lensUpgradeData;
+    public int lensUpgradeCost = 40;
 }

@@ -26,3 +26,7 @@ MonoBehaviour:
   fireCooldown: 1
   projectilePrefab: {fileID: 285364894546975700, guid: 4fc439eb9ab65403dbb822d3e370fb0c, type: 3}
   projectileSpeed: 15
+  splashRadius: 0
+  splashDamage: 0
+  cannonUpgradeData: {fileID: 11400000, guid: 1cade7b004c7c4e229ee6c41f65a30fe, type: 2}
+  cannonUpgradeCost: 40

@@ -58,7 +58,7 @@ MonoBehaviour:
   m_Name: 
   m_EditorClassIdentifier: UnityEngine.UI::UnityEngine.UI.Image
   m_Material: {fileID: 0}
-  m_Color: {r: 0.5450981, g: 0, b: 0, a: 1}
+  m_Color: {r: 0.25, g: 0.75, b: 0.25, a: 1}
   m_RaycastTarget: 1
   m_RaycastPadding: {x: 0, y: 0, z: 0, w: 0}
   m_Maskable: 1
@@ -358,7 +358,6 @@ GameObject:
   - component: {fileID: 8682156459187812186}
   - component: {fileID: 8449251892882368466}
   - component: {fileID: 926163072217245902}
-  - component: {fileID: 4612782288341285032}
   - component: {fileID: 7308606337959077702}
   - component: {fileID: 4525165316797721704}
   - component: {fileID: -1062441288491864690}
@@ -505,19 +504,6 @@ MonoBehaviour:
   m_Name: 
   m_EditorClassIdentifier: Assembly-CSharp::Health
   maxHP: 40
---- !u!114 &4612782288341285032
-MonoBehaviour:
-  m_ObjectHideFlags: 0
-  m_CorrespondingSourceObject: {fileID: 0}
-  m_PrefabInstance: {fileID: 0}
-  m_PrefabAsset: {fileID: 0}
-  m_GameObject: {fileID: 3723640576916174473}
-  m_Enabled: 1
-  m_EditorHideFlags: 0
-  m_Script: {fileID: 11500000, guid: 097763f403084465d9e1bd144a2172fb, type: 3}
-  m_Name: 
-  m_EditorClassIdentifier: Assembly-CSharp::DestroyOnDeath
-  delay: 0
 --- !u!114 &7308606337959077702
 MonoBehaviour:
   m_ObjectHideFlags: 0
@@ -569,6 +555,8 @@ MonoBehaviour:
   kiteStepDistance: 2.5
   kiteEveryShots: 2
   aimFlashColor: {r: 1, g: 1, b: 1, a: 1}
+  defendAggroMultiplier: 0.6
+  defendLeashDistance: 6
   toppleDuration: 0.4
   corpseLingerTime: 1
 --- !u!114 &-1062441288491864690

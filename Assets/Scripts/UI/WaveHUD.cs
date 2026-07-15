@@ -28,8 +28,18 @@ public class WaveHUD : MonoBehaviour
     [SerializeField] private UnityEngine.UI.Slider bossHealthSlider;
     [SerializeField] private string bossDisplayName = "GIANT PALM CRAB";
 
+    [Header("One-time Hints")]
+    [Tooltip("Separate from the announcement label on purpose - the wave-cleared announcement and this hint can land at almost the same moment, and they shouldn't fight over the same text.")]
+    [SerializeField] private TMP_Text hintLabel;
+    [SerializeField] private float hintHoldTime = 5f;
+    [SerializeField] private float hintFadeTime = 1f;
+    [Tooltip("Wave AFTER which the building-heal hint appears - i.e. shown once Wave 6 (Jellyfish's debut) clears, since that's the first time the heal-on-clear is worth pointing out.")]
+    [SerializeField] private int healHintAfterWave = 6;
+
     private Coroutine announcementRoutine;
+    private Coroutine hintRoutine;
     private Health trackedBossHealth;
+    private bool hasShownHealHint;
 
 private void Start()
     {
@@ -38,6 +48,9 @@ private void Start()
 
         if (bossHealthBarGroup != null)
             bossHealthBarGroup.alpha = 0f;
+
+        if (hintLabel != null)
+            hintLabel.alpha = 0f;
 
         if (WaveManager.Instance != null)
         {
@@ -110,10 +123,16 @@ private void HandleCombatPhaseStarted(int waveNumber)
             skipBuildButton.gameObject.SetActive(false);
     }
 
-    private void HandleWaveCleared(int waveNumber)
+private void HandleWaveCleared(int waveNumber)
     {
         // Build-phase-started handles the 'Wave cleared!' announcement so the
-        // two never overlap; this handler exists for future hooks (audio etc).
+        // two never overlap with each other; this hint uses its OWN label so
+        // it doesn't overlap with THAT either - both can be on screen at once.
+        if (!hasShownHealHint && waveNumber == healHintAfterWave)
+        {
+            hasShownHealHint = true;
+            ShowHint("Buildings (except the Keep) replenish their health at the end of a round");
+        }
     }
 
 private void HandleVictory()
@@ -239,5 +258,34 @@ private IEnumerator AnnounceRoutine(string message)
 
         announcementLabel.alpha = 0f;
         announcementRoutine = null;
+    }
+
+    private void ShowHint(string message)
+    {
+        if (hintLabel == null)
+            return;
+
+        if (hintRoutine != null)
+            StopCoroutine(hintRoutine);
+        hintRoutine = StartCoroutine(HintRoutine(message));
+    }
+
+    private IEnumerator HintRoutine(string message)
+    {
+        hintLabel.text = message;
+        hintLabel.alpha = 1f;
+
+        yield return new WaitForSecondsRealtime(hintHoldTime);
+
+        float elapsed = 0f;
+        while (elapsed < hintFadeTime)
+        {
+            elapsed += Time.unscaledDeltaTime;
+            hintLabel.alpha = 1f - (elapsed / hintFadeTime);
+            yield return null;
+        }
+
+        hintLabel.alpha = 0f;
+        hintRoutine = null;
     }
 }

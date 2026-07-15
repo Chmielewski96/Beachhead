@@ -10,11 +10,34 @@ using UnityEngine.AI;
 /// </summary>
 public class KeepWorkerRecruiter : MonoBehaviour
 {
+    private void Awake()
+    {
+        // Component-level singleton guard (Destroy(this), never
+        // Destroy(gameObject)) - this component lives ON the Keep itself,
+        // and destroying the whole GameObject would take the Keep with it
+        // if this were ever accidentally duplicated.
+        if (Instance != null && Instance != this)
+        {
+            Destroy(this);
+            return;
+        }
+        Instance = this;
+    }
+
     [SerializeField] private GameObject workerPrefab;
     [Tooltip("Shell cost of each additional worker beyond the starting one: element 0 = second worker, element 1 = third, etc.")]
     [SerializeField] private int[] recruitCosts = { 50, 100 };
     [Tooltip("How far around the Keep to look for a walkable spawn spot.")]
     [SerializeField] private float spawnSearchRadius = 6f;
+
+    [Header("Worker Shovels (one-time, permanent, affects ALL workers)")]
+    [SerializeField] private int shovelsCost = 250;
+    [Tooltip("Visual swap applied to every worker the instant Shovels is purchased - present workers in place, future recruits spawn as this directly.")]
+    [SerializeField] private GameObject upgradedWorkerPrefab;
+
+    public static KeepWorkerRecruiter Instance { get; private set; }
+    public bool ShovelsPurchased { get; private set; }
+    public int ShovelsCost => shovelsCost;
 
     public int MaxWorkers => recruitCosts.Length + 1;
 
@@ -59,10 +82,71 @@ public bool TryRecruit()
             return false;
         }
 
-        Instantiate(workerPrefab, FindSpawnPosition(), Quaternion.identity);
+        GameObject prefabToSpawn = (ShovelsPurchased && upgradedWorkerPrefab != null) ? upgradedWorkerPrefab : workerPrefab;
+        Instantiate(prefabToSpawn, FindSpawnPosition(), Quaternion.identity);
         Debug.Log("Worker recruited for " + cost + " shells (" + (alive + 1) + "/" + MaxWorkers + ").");
         return true;
     }
+
+/// <summary>
+    /// One-time, permanent: doubles every worker's sand-per-trip, present
+    /// and future. Deliberately NOT baked into each WorkerAI's own
+    /// carryCapacity field at spawn time - WorkerAI reads this flag live
+    /// (via Instance) every time it matters, so a purchase mid-game
+    /// immediately benefits workers already out gathering, not just ones
+    /// recruited afterward.
+    /// </summary>
+    public bool TryPurchaseShovels()
+    {
+        if (ShovelsPurchased)
+            return false;
+
+        if (ResourceManager.Instance != null &&
+            !ResourceManager.Instance.TrySpend(ResourceType.Shells, shovelsCost))
+            return false;
+
+        ShovelsPurchased = true;
+        SwapExistingWorkersToUpgradedModel();
+        return true;
+    }
+
+    /// <summary>
+    /// Every currently-alive worker gets the new model in place - same
+    /// position, same rotation, and if it was actively gathering, the SAME
+    /// node (a fresh AssignDeposit call). What's lost is only whatever it
+    /// was carrying mid-trip and any in-progress harvest/deposit timer -
+    /// an acceptable one-time hiccup for a purely cosmetic swap, and the
+    /// same tradeoff GarrisonBuilding's own specialization swap already
+    /// makes for troops.
+    /// </summary>
+    private void SwapExistingWorkersToUpgradedModel()
+    {
+        if (upgradedWorkerPrefab == null)
+            return;
+
+        WorkerAI[] existingWorkers = FindObjectsByType<WorkerAI>(FindObjectsSortMode.None);
+        foreach (WorkerAI worker in existingWorkers)
+        {
+            Health health = worker.GetComponent<Health>();
+            if (health != null && health.IsDead)
+                continue; // a corpse mid-topple doesn't need upgrading
+
+            if (worker.IsUpgradedModel)
+                continue; // already correct - don't needlessly destroy-and-respawn it
+
+            Vector3 position = worker.transform.position;
+            Quaternion rotation = worker.transform.rotation;
+            ResourceDeposit node = worker.AssignedNode;
+
+            Destroy(worker.gameObject);
+
+            GameObject replacement = Instantiate(upgradedWorkerPrefab, position, rotation);
+            WorkerAI replacementAI = replacement.GetComponent<WorkerAI>();
+            if (replacementAI != null && node != null)
+                replacementAI.AssignDeposit(node);
+        }
+    }
+
 
     private int CountAliveWorkers()
     {

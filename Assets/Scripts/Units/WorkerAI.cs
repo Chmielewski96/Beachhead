@@ -30,6 +30,11 @@ public class WorkerAI : MonoBehaviour
     [Header("Visuals (optional)")]
     [Tooltip("Child object shown while carrying sand - e.g. a small sphere above the head.")]
     [SerializeField] private GameObject carryVisual;
+    [Tooltip("The upgraded model's digging shovel - assign the 'Shovel' child on WorkerShovel only. Left null on the base Worker, which simply skips the animation entirely.")]
+    [SerializeField] private Transform shovelPivot;
+    [SerializeField] private float shovelRestAngle = 75f;
+    [SerializeField] private float shovelDigAngle = 150f;
+    [SerializeField] private float shovelSwingSpeed = 4f;
 
     [Header("Auto-Work")]
     [Tooltip("When idle with nothing assigned (fresh spawn, or a node just ran dry), automatically seek the nearest non-empty deposit. Manual assignment (right-click a node) and manual move orders (right-click ground) still work exactly as before and always take priority - this only fills the gaps where a worker would otherwise stand around waiting to be told what to do.")]
@@ -40,7 +45,18 @@ public class WorkerAI : MonoBehaviour
     [Tooltip("Log every state transition - keep on until you trust the FSM, per the plan.")]
     [SerializeField] private bool logStateTransitions = false;
 
+    [Header("Model Identity")]
+    [Tooltip("True on an already-upgraded model (e.g. WorkerShovel) - lets KeepWorkerRecruiter's swap skip a worker that's already correct instead of needlessly re-swapping it.")]
+    [SerializeField] private bool isUpgradedModel = false;
+    public bool IsUpgradedModel => isUpgradedModel;
+
+    [Header("Death")]
+    [SerializeField] private float toppleDuration = 0.4f;
+    [SerializeField] private float corpseLingerTime = 1f;
+
     private NavMeshAgent agent;
+    private Health selfHealth;
+    private HitFlash hitFlash;
     private State state = State.Idle;
     private ResourceDeposit assignedNode;
     private Collider nodeCollider;
@@ -49,10 +65,29 @@ public class WorkerAI : MonoBehaviour
     private ResourceType carriedType = ResourceType.Sand;
     private float stateTimer;
     private float idleSeekTimer;
+    private Vector3 shovelRestEuler; // X/Y preserved exactly as authored - only Z ever gets driven
+    private float shovelAnimTimer; // time SINCE ENTERING Harvesting, not global Time.time - starts every cycle at rest
+
+    /// <summary>
+    /// carryCapacity, doubled if Worker Shovels has been purchased. Read
+    /// live rather than baked in at spawn, so a purchase mid-game benefits
+    /// every worker immediately - including one already out gathering.
+    /// </summary>
+    private int EffectiveCarryCapacity =>
+        KeepWorkerRecruiter.Instance != null && KeepWorkerRecruiter.Instance.ShovelsPurchased
+            ? carryCapacity * 2
+            : carryCapacity;
 
     private void Awake()
     {
         agent = GetComponent<NavMeshAgent>();
+        selfHealth = GetComponent<Health>();
+        hitFlash = GetComponentInChildren<HitFlash>();
+        if (selfHealth != null)
+            selfHealth.OnDeath += HandleDeath;
+
+        if (shovelPivot != null)
+            shovelRestEuler = shovelPivot.localEulerAngles;
     }
 
     private void Start()
@@ -67,11 +102,53 @@ private void OnDestroy()
         // replacement recruit can take over the deposit immediately.
         if (assignedNode != null)
             assignedNode.Release(this);
+
+        if (selfHealth != null)
+            selfHealth.OnDeath -= HandleDeath;
+    }
+
+    /// <summary>
+    /// Workers had no death handling of their own at all before this -
+    /// they relied entirely on the generic DestroyOnDeath component for an
+    /// instant, animation-free vanish. This mirrors SoldierAI's approach:
+    /// stop, go visibly red, topple, linger as a corpse, then clear away.
+    /// </summary>
+    private void HandleDeath()
+    {
+        if (hitFlash != null)
+            hitFlash.SetSustainedTint(Color.red, 1f);
+
+        if (agent.enabled && agent.isOnNavMesh)
+            agent.isStopped = true;
+        agent.enabled = false;
+        foreach (Collider c in GetComponentsInChildren<Collider>())
+            c.enabled = false;
+
+        StartCoroutine(DeathSequence());
+    }
+
+    private System.Collections.IEnumerator DeathSequence()
+    {
+        Quaternion start = transform.rotation;
+        Quaternion end = start * Quaternion.Euler(0f, 0f, 90f);
+        float elapsed = 0f;
+
+        while (elapsed < toppleDuration)
+        {
+            elapsed += Time.deltaTime;
+            transform.rotation = Quaternion.Slerp(start, end, elapsed / toppleDuration);
+            yield return null;
+        }
+
+        Destroy(gameObject, corpseLingerTime);
     }
 
 
     private void Update()
     {
+        if (selfHealth != null && selfHealth.IsDead)
+            return;
+
         switch (state)
         {
             case State.MovingToNode: TickMovingToNode(); break;
@@ -83,9 +160,49 @@ private void OnDestroy()
 
         if (carryVisual != null && carryVisual.activeSelf != (carried > 0))
             carryVisual.SetActive(carried > 0);
+
+        TickShovelAnimation();
+    }
+
+    /// <summary>
+    /// Swings the shovel between shovelRestAngle and shovelDigAngle (Z only
+    /// - X/Y stay exactly as authored) for the whole time this worker is
+    /// actively Harvesting; snaps back to rest the instant it isn't. No-op
+    /// entirely if shovelPivot was never assigned (every base Worker).
+    /// </summary>
+private void TickShovelAnimation()
+    {
+        if (shovelPivot == null)
+            return;
+
+        float z;
+        if (state == State.Harvesting)
+        {
+            shovelAnimTimer += Time.deltaTime;
+
+            // (1 - cos)/2 instead of a raw sine: at timer=0 this evaluates
+            // to exactly 0, landing precisely on shovelRestAngle the moment
+            // Harvesting begins, then eases up to shovelDigAngle and back.
+            // A raw sine driven off THIS SAME local timer would have had
+            // the identical zero-start problem the old Time.time version
+            // did, just moved one step over - the fix is really that this
+            // timer resets to 0 on every fresh entry into Harvesting
+            // (see EnterState), not merely which wave shape is used.
+            float t = 0.5f - 0.5f * Mathf.Cos(shovelAnimTimer * shovelSwingSpeed);
+            z = Mathf.Lerp(shovelRestAngle, shovelDigAngle, t);
+        }
+        else
+        {
+            z = shovelRestAngle;
+        }
+
+        shovelPivot.localRotation = Quaternion.Euler(shovelRestEuler.x, shovelRestEuler.y, z);
     }
 
     /// <summary>Player right-clicked a resource node with this worker selected.</summary>
+/// <summary>Read-only - lets an external swap (e.g. the Worker Shovels visual upgrade) re-assign the replacement worker to the same node.</summary>
+    public ResourceDeposit AssignedNode => assignedNode;
+
 public void AssignDeposit(ResourceDeposit node)
     {
         // Switching nodes hands the old one back to the pool immediately.
@@ -141,6 +258,7 @@ public void OnManualMoveOrder()
             case State.Harvesting:
                 agent.isStopped = true;
                 stateTimer = harvestDuration;
+                shovelAnimTimer = 0f; // fresh cycle - TickShovelAnimation starts exactly at rest
                 break;
 
             case State.MovingToKeep:
@@ -192,7 +310,7 @@ private void TickHarvesting()
             // Capture the type BEFORE harvesting - a Harvest that empties the
             // node destroys it, and we still need to know what we're carrying.
             carriedType = assignedNode.ResourceType;
-            carried += assignedNode.Harvest(carryCapacity - carried);
+            carried += assignedNode.Harvest(EffectiveCarryCapacity - carried);
             EnterState(State.MovingToKeep);
         }
     }

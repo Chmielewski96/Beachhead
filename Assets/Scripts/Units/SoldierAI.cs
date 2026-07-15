@@ -246,8 +246,13 @@ private void TickAttacking()
             return;
         }
 
+        // Subtract our own agent.radius: raw root-to-surface distance never
+        // accounted for the soldier's own body, so attackRange was really
+        // measured root-to-surface rather than surface-to-surface - the same
+        // fix as CrabAI, for the same reason (obstacle avoidance used to
+        // mask the slack; it's gone now, so the imprecision is visible).
         Vector3 closestPoint = targetCollider.ClosestPoint(transform.position);
-        float distance = Vector3.Distance(transform.position, closestPoint);
+        float distance = Vector3.Distance(transform.position, closestPoint) - agent.radius;
 
         if (combatStyle == CombatStyle.Melee)
             TickMelee(closestPoint, distance);
@@ -523,6 +528,12 @@ private void HandleDeath()
     {
         isKiting = false;
         ClearAimFlash();
+
+        // Persistent red - distinct from the momentary damage/aim flashes,
+        // this one is never cleared (the corpse is destroyed shortly after
+        // anyway) so the topple visibly reads as "dead" the whole time.
+        if (hitFlash != null)
+            hitFlash.SetSustainedTint(Color.red, 1f);
 
         // A unit can die while standing OFF the mesh (shoved into a wall's
         // carve fringe by attackers) - isStopped throws on an off-mesh

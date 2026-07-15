@@ -39,13 +39,27 @@ public class BuildingInfoPanel : MonoBehaviour
     [SerializeField] private TMP_Text defendButtonLabel;
     [Tooltip("Layers a Defend Point click can land on - typically just Ground.")]
     [SerializeField] private LayerMask groundMask;
+    [Tooltip("VFX spawned at the point when a Defend Point order lands - reuses the same marker as resource-node assignment, for the same 'order received' feel.")]
+    [SerializeField] private GameObject defendPointMarkerPrefab;
     [Tooltip("Button tint for the squad's CURRENT stance.")]
     [SerializeField] private Color stanceActiveColor = new Color(0.85f, 0.65f, 0.2f);
     [Tooltip("Button tint for the stances not currently active.")]
     [SerializeField] private Color stanceIdleColor = new Color(0.35f, 0.35f, 0.4f);
 
+    [Header("Tower Cannon Upgrade")]
+    [Tooltip("Shown only while a Tower that CAN upgrade (data.cannonUpgradeData != null) is selected.")]
+    [SerializeField] private Button cannonButton;
+    [SerializeField] private TMP_Text cannonButtonLabel;
+
+    [Header("Keep: Worker Shovels")]
+    [Tooltip("Shown only while the Keep is selected AND shovels haven't been purchased yet - one-time, permanent.")]
+    [SerializeField] private Button shovelsButton;
+    [SerializeField] private TMP_Text shovelsButtonLabel;
+
     private BuildingSelectable current;
     private GarrisonBuilding currentGarrison;
+    private Tower currentTower;
+    private KeepWorkerRecruiter currentKeep;
 
     // Defend Point targeting holds its OWN garrison reference: the ground
     // click that places the point usually also deselects the building
@@ -70,6 +84,10 @@ public class BuildingInfoPanel : MonoBehaviour
             seekButton.onClick.AddListener(ChooseSeekAndDestroy);
         if (defendButton != null)
             defendButton.onClick.AddListener(BeginDefendPointTargeting);
+        if (cannonButton != null)
+            cannonButton.onClick.AddListener(ChooseCannonUpgrade);
+        if (shovelsButton != null)
+            shovelsButton.onClick.AddListener(ChooseShovels);
 
         SetSpecializeButtonsVisible(false);
         SetStanceButtonsVisible(false);
@@ -93,6 +111,22 @@ public class BuildingInfoPanel : MonoBehaviour
             seekButton.onClick.RemoveListener(ChooseSeekAndDestroy);
         if (defendButton != null)
             defendButton.onClick.RemoveListener(BeginDefendPointTargeting);
+        if (cannonButton != null)
+            cannonButton.onClick.RemoveListener(ChooseCannonUpgrade);
+        if (shovelsButton != null)
+            shovelsButton.onClick.RemoveListener(ChooseShovels);
+    }
+
+    private void ChooseCannonUpgrade()
+    {
+        if (currentTower != null)
+            currentTower.TryUpgradeToCannon();
+    }
+
+    private void ChooseShovels()
+    {
+        if (currentKeep != null)
+            currentKeep.TryPurchaseShovels();
     }
 
     private void ChooseGuardians()
@@ -141,8 +175,12 @@ public class BuildingInfoPanel : MonoBehaviour
         if (current == null)
         {
             currentGarrison = null;
+            currentTower = null;
+            currentKeep = null;
             SetSpecializeButtonsVisible(false);
             SetStanceButtonsVisible(false);
+            SetCannonButtonVisible(false);
+            SetShovelsButtonVisible(false);
         }
         if (panelRoot != null)
             panelRoot.SetActive(current != null);
@@ -163,12 +201,17 @@ public class BuildingInfoPanel : MonoBehaviour
         }
 
         currentGarrison = null;
+        currentTower = null;
+        currentKeep = null;
 
         KeepWorkerRecruiter keep = current.GetComponentInParent<KeepWorkerRecruiter>();
         if (keep != null)
         {
+            currentKeep = keep;
             SetSpecializeButtonsVisible(false);
             SetStanceButtonsVisible(false);
+            SetCannonButtonVisible(false);
+            UpdateShovelsButton(keep);
             SetText("The Keep", BuildKeepText(keep));
             return;
         }
@@ -179,12 +222,28 @@ public class BuildingInfoPanel : MonoBehaviour
             currentGarrison = garrison;
             UpdateSpecializeButtons(garrison);
             UpdateStanceButtons(garrison);
+            SetCannonButtonVisible(false);
+            SetShovelsButtonVisible(false);
             SetText("Garrison", BuildRepairLine(garrison) + BuildGarrisonText(garrison));
+            return;
+        }
+
+        Tower tower = current.GetComponentInParent<Tower>();
+        if (tower != null)
+        {
+            currentTower = tower;
+            SetSpecializeButtonsVisible(false);
+            SetStanceButtonsVisible(false);
+            UpdateCannonButton(tower);
+            SetShovelsButtonVisible(false);
+            SetText(tower.DisplayName, BuildRepairLine(current));
             return;
         }
 
         SetSpecializeButtonsVisible(false);
         SetStanceButtonsVisible(false);
+        SetCannonButtonVisible(false);
+        SetShovelsButtonVisible(false);
         SetText(current.gameObject.name, BuildRepairLine(current));
     }
 
@@ -222,7 +281,11 @@ public class BuildingInfoPanel : MonoBehaviour
         if (MouseWorld.TryGetGroundPoint(groundMask, out Vector3 point))
         {
             if (targetingGarrison.TrySetStance(GarrisonBuilding.Stance.DefendPoint, point))
+            {
+                if (defendPointMarkerPrefab != null)
+                    Instantiate(defendPointMarkerPrefab, point + Vector3.up * 0.05f, Quaternion.identity);
                 CancelDefendPointTargeting();
+            }
             // else: out of command range / unwalkable - stay in targeting
             // mode, the player can immediately click somewhere valid.
         }
@@ -230,10 +293,12 @@ public class BuildingInfoPanel : MonoBehaviour
 
     private string BuildKeepText(KeepWorkerRecruiter keep)
     {
-        if (keep.AliveWorkers >= keep.MaxWorkers)
-            return "Workers: " + keep.AliveWorkers + "/" + keep.MaxWorkers + "  (limit reached)";
+        string shovelsLine = keep.ShovelsPurchased ? "Worker Shovels: purchased (20 sand/trip)\n" : "";
 
-        return "[U] Recruit worker - " + keep.NextRecruitCost + " shells\n"
+        if (keep.AliveWorkers >= keep.MaxWorkers)
+            return shovelsLine + "Workers: " + keep.AliveWorkers + "/" + keep.MaxWorkers + "  (limit reached)";
+
+        return shovelsLine + "[U] Recruit worker - " + keep.NextRecruitCost + " shells\n"
              + "Workers: " + keep.AliveWorkers + "/" + keep.MaxWorkers;
     }
 
@@ -312,6 +377,52 @@ public class BuildingInfoPanel : MonoBehaviour
         if (button == null || button.image == null)
             return;
         button.image.color = active ? stanceActiveColor : stanceIdleColor;
+    }
+
+    private void UpdateCannonButton(Tower tower)
+    {
+        bool show = tower.CanUpgradeToCannon;
+        SetCannonButtonVisible(show);
+        if (!show)
+            return;
+
+        int shells = ResourceManager.Instance != null
+            ? ResourceManager.Instance.GetAmount(ResourceType.Shells)
+            : 0;
+
+        if (cannonButton != null)
+            cannonButton.interactable = shells >= tower.CannonUpgradeCost;
+        if (cannonButtonLabel != null)
+            cannonButtonLabel.text = "Upgrade: Cannon\n" + tower.CannonUpgradeCost + " shells";
+    }
+
+    private void SetCannonButtonVisible(bool visible)
+    {
+        if (cannonButton != null && cannonButton.gameObject.activeSelf != visible)
+            cannonButton.gameObject.SetActive(visible);
+    }
+
+    private void UpdateShovelsButton(KeepWorkerRecruiter keep)
+    {
+        bool show = !keep.ShovelsPurchased;
+        SetShovelsButtonVisible(show);
+        if (!show)
+            return;
+
+        int shells = ResourceManager.Instance != null
+            ? ResourceManager.Instance.GetAmount(ResourceType.Shells)
+            : 0;
+
+        if (shovelsButton != null)
+            shovelsButton.interactable = shells >= keep.ShovelsCost;
+        if (shovelsButtonLabel != null)
+            shovelsButtonLabel.text = "Worker Shovels\n" + keep.ShovelsCost + " shells";
+    }
+
+    private void SetShovelsButtonVisible(bool visible)
+    {
+        if (shovelsButton != null && shovelsButton.gameObject.activeSelf != visible)
+            shovelsButton.gameObject.SetActive(visible);
     }
 
     private void SetSpecializeButtonsVisible(bool visible)

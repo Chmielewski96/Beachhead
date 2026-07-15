@@ -2276,6 +2276,8 @@ MonoBehaviour:
   workerPrefab: {fileID: 1728593266543373611, guid: db3f53838348d409cb3d407a156a40c7, type: 3}
   recruitCosts: 3200000064000000
   spawnSearchRadius: 6
+  shovelsCost: 250
+  upgradedWorkerPrefab: {fileID: 0}
 --- !u!114 &8513930845995565945
 MonoBehaviour:
   m_ObjectHideFlags: 0

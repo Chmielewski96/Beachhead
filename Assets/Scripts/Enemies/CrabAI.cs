@@ -272,8 +272,14 @@ private void TickAttacking()
         // Distance to the collider's closest point, not the transform center -
         // otherwise a crab standing right against a big Keep would think it's
         // still 'far away' because the center is meters inside the building.
+        // Also subtract OUR OWN agent.radius: the raw root-to-surface distance
+        // never accounted for the crab's own body, so attackRange was really
+        // being measured root-to-surface rather than surface-to-surface -
+        // close enough to go unnoticed while obstacle avoidance made crabs
+        // circle and hesitate on approach, but glaringly obvious now that
+        // they beeline straight in and stop the instant they're 'in range'.
         Vector3 closestPoint = targetCollider.ClosestPoint(transform.position);
-        float distance = Vector3.Distance(transform.position, closestPoint);
+        float distance = Vector3.Distance(transform.position, closestPoint) - agent.radius;
         wantsToMove = distance > attackRange; // mirrors the branch below - this is what the gait reads
 
         if (distance > attackRange)

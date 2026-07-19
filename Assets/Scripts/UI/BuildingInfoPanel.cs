@@ -41,6 +41,9 @@ public class BuildingInfoPanel : MonoBehaviour
     [SerializeField] private LayerMask groundMask;
     [Tooltip("VFX spawned at the point when a Defend Point order lands - reuses the same marker as resource-node assignment, for the same 'order received' feel.")]
     [SerializeField] private GameObject defendPointMarkerPrefab;
+    [Tooltip("Same flat disc mesh/material as the Tower/Garrison PLACEMENT ghost rings, reused here for the command-range preview during Defend Point targeting.")]
+    [SerializeField] private Mesh rangeRingMesh;
+    [SerializeField] private Material rangeRingMaterial;
     [Tooltip("Button tint for the squad's CURRENT stance.")]
     [SerializeField] private Color stanceActiveColor = new Color(0.85f, 0.65f, 0.2f);
     [Tooltip("Button tint for the stances not currently active.")]
@@ -70,6 +73,32 @@ public class BuildingInfoPanel : MonoBehaviour
     // currentGarrison - the order must not die with the selection.
     private GarrisonBuilding targetingGarrison;
     private int targetingStartFrame;
+
+    /// <summary>
+    /// True from the moment "Defend Point" is clicked until it succeeds or
+    /// is cancelled - SelectionManager checks this the same way it already
+    /// checks BuildingPlacer/DemolishInput, so a ground click that MISSES
+    /// the valid area doesn't also deselect the garrison out from under
+    /// the targeting mode. Without this, the panel (and this ring) closed
+    /// on the very first failed click regardless of the "stay in targeting
+    /// mode, just click again" logic below - that retry was already silently
+    /// broken, since the UI telling the player to retry vanished immediately.
+    /// </summary>
+    public static bool IsTargetingDefendPoint { get; private set; }
+
+    // World-space preview of the garrison's command range while Defend
+    // Point targeting is active - built lazily from the same Cylinder
+    // mesh + RangeZone material BuildingPlacer's own ghost rings use, so
+    // it reads as the same visual language rather than a new one.
+    private GameObject commandRangeRing;
+
+    // Same idea, separate object: a world-space preview of a SELECTED
+    // tower's actual range (data.range - applies to Cannon/Lens too, not
+    // just the base tower's projectile reach). Kept as its own GameObject
+    // rather than sharing commandRangeRing, since the two can never be
+    // needed at the same time but ARE conceptually different previews for
+    // different building types.
+    private GameObject towerRangeRing;
 
     private void Start()
     {
@@ -122,6 +151,11 @@ public class BuildingInfoPanel : MonoBehaviour
             lensButton.onClick.RemoveListener(ChooseLensUpgrade);
         if (shovelsButton != null)
             shovelsButton.onClick.RemoveListener(ChooseShovels);
+
+        if (commandRangeRing != null)
+            Destroy(commandRangeRing);
+        if (towerRangeRing != null)
+            Destroy(towerRangeRing);
     }
 
     private void ChooseCannonUpgrade()
@@ -175,11 +209,62 @@ public class BuildingInfoPanel : MonoBehaviour
 
         targetingGarrison = currentGarrison;
         targetingStartFrame = Time.frameCount; // the button click itself must not count as the placement click
+        IsTargetingDefendPoint = true;
+
+        ShowCommandRangeRing(currentGarrison);
     }
 
     private void CancelDefendPointTargeting()
     {
         targetingGarrison = null;
+        IsTargetingDefendPoint = false;
+        if (commandRangeRing != null)
+            commandRangeRing.SetActive(false);
+    }
+
+    /// <summary>
+    /// Lazily builds a flat translucent disc (same mesh/material as the
+    /// Tower/Garrison PLACEMENT ghost rings) sized to the garrison's actual
+    /// commandRange, centered on the garrison itself - not a UI element,
+    /// so it's kept OUT of the Canvas hierarchy entirely (a UI RectTransform
+    /// parent would apply Canvas scaling to what needs to be a real,
+    /// unscaled world-space size).
+    /// </summary>
+private void ShowCommandRangeRing(GarrisonBuilding garrison)
+    {
+        if (commandRangeRing == null)
+        {
+            commandRangeRing = new GameObject("CommandRangeRing", typeof(MeshFilter), typeof(MeshRenderer));
+            commandRangeRing.transform.SetParent(null);
+            commandRangeRing.GetComponent<MeshFilter>().sharedMesh = rangeRingMesh;
+            commandRangeRing.GetComponent<MeshRenderer>().sharedMaterial = rangeRingMaterial;
+        }
+
+        commandRangeRing.transform.position = garrison.transform.position;
+        commandRangeRing.transform.localScale = new Vector3(garrison.CommandRange * 2f, 0.01f, garrison.CommandRange * 2f);
+        commandRangeRing.SetActive(true);
+    }
+
+    /// <summary>Same pattern as ShowCommandRangeRing, for a selected tower's own range.</summary>
+    private void ShowTowerRangeRing(Tower tower)
+    {
+        if (towerRangeRing == null)
+        {
+            towerRangeRing = new GameObject("TowerRangeRing", typeof(MeshFilter), typeof(MeshRenderer));
+            towerRangeRing.transform.SetParent(null);
+            towerRangeRing.GetComponent<MeshFilter>().sharedMesh = rangeRingMesh;
+            towerRangeRing.GetComponent<MeshRenderer>().sharedMaterial = rangeRingMaterial;
+        }
+
+        towerRangeRing.transform.position = tower.transform.position;
+        towerRangeRing.transform.localScale = new Vector3(tower.Range * 2f, 0.01f, tower.Range * 2f);
+        towerRangeRing.SetActive(true);
+    }
+
+    private void HideTowerRangeRing()
+    {
+        if (towerRangeRing != null)
+            towerRangeRing.SetActive(false);
     }
 
     private void HandleSelectionChanged(BuildingSelectable building)
@@ -195,6 +280,7 @@ public class BuildingInfoPanel : MonoBehaviour
             SetCannonButtonVisible(false);
             SetLensButtonVisible(false);
             SetShovelsButtonVisible(false);
+            HideTowerRangeRing();
         }
         if (panelRoot != null)
             panelRoot.SetActive(current != null);
@@ -235,6 +321,7 @@ public class BuildingInfoPanel : MonoBehaviour
             SetStanceButtonsVisible(false);
             SetCannonButtonVisible(false);
             SetLensButtonVisible(false);
+            HideTowerRangeRing();
             UpdateShovelsButton(keep);
             SetText("The Keep", BuildKeepText(keep));
             return;
@@ -249,6 +336,7 @@ public class BuildingInfoPanel : MonoBehaviour
             SetCannonButtonVisible(false);
             SetLensButtonVisible(false);
             SetShovelsButtonVisible(false);
+            HideTowerRangeRing();
             SetText("Garrison", BuildRepairLine(garrison) + BuildGarrisonText(garrison));
             return;
         }
@@ -262,6 +350,7 @@ public class BuildingInfoPanel : MonoBehaviour
             UpdateCannonButton(tower);
             UpdateLensButton(tower);
             SetShovelsButtonVisible(false);
+            ShowTowerRangeRing(tower);
             SetText(tower.DisplayName, BuildRepairLine(current));
             return;
         }
@@ -271,6 +360,7 @@ public class BuildingInfoPanel : MonoBehaviour
         SetCannonButtonVisible(false);
         SetLensButtonVisible(false);
         SetShovelsButtonVisible(false);
+        HideTowerRangeRing();
         SetText(current.gameObject.name, BuildRepairLine(current));
     }
 

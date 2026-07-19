@@ -20,6 +20,13 @@ public class SelectionManager : MonoBehaviour
     /// <summary>Fired when the selected building changes (null = deselected).</summary>
     public event System.Action<BuildingSelectable> OnBuildingSelectionChanged;
 
+    /// <summary>
+    /// Fired whenever the SINGLE selected unit changes (null = none/multi).
+    /// Info-only, same as the panel it drives - units still take no orders
+    /// and this doesn't add any commandability, just inspection.
+    /// </summary>
+    public event System.Action<Unit> OnUnitSelectionChanged;
+
 
     [Header("Layers")]
     [SerializeField] private LayerMask unitMask;
@@ -70,6 +77,11 @@ public class SelectionManager : MonoBehaviour
 
         // Same reasoning for demolish mode.
         if (DemolishInput.Instance != null && DemolishInput.Instance.IsBlockingWorldClicks)
+            return;
+
+        // Same reasoning for Defend Point targeting - a click that MISSES
+        // the valid area must not deselect the garrison being ordered.
+        if (BuildingInfoPanel.IsTargetingDefendPoint)
             return;
 
 
@@ -224,6 +236,9 @@ private void SelectSingleUnitUnderMouse()
 
         selected.Add(unit);
         unit.OnSelected();
+
+        if (selected.Count == 1)
+            OnUnitSelectionChanged?.Invoke(unit);
     }
 
 /// <summary>
@@ -239,9 +254,14 @@ private void SelectSingleUnitUnderMouse()
 
 private void ClearSelection()
     {
+        bool hadSelection = selected.Count > 0;
+
         foreach (Unit unit in selected)
             unit.OnDeselected();
         selected.Clear();
+
+        if (hadSelection)
+            OnUnitSelectionChanged?.Invoke(null);
 
         DeselectBuilding();
     }

@@ -26,6 +26,7 @@ public class Tower : MonoBehaviour
     [SerializeField] private Renderer attackMaterialRenderer;
     [SerializeField] private Material attackMaterial;
 
+    private Health selfHealth;
     private Health target;
     private float retargetTimer;
     private float fireTimer;
@@ -35,6 +36,8 @@ public class Tower : MonoBehaviour
 
     private void Awake()
     {
+        selfHealth = GetComponent<Health>();
+
         if (cannonPivot != null)
             cannonRestTilt = cannonPivot.localEulerAngles;
 
@@ -44,6 +47,14 @@ public class Tower : MonoBehaviour
 
     private void Update()
     {
+        // Same guard every other unit has: BuildingCollapseEffect's death
+        // animation (shake + sink) takes a moment, and without this the
+        // tower kept fully acquiring targets and firing - beam ticking,
+        // cannon shots, the works - for that whole window right up until
+        // Destroy() actually finished.
+        if (selfHealth != null && selfHealth.IsDead)
+            return;
+
         retargetTimer -= Time.deltaTime;
         if (retargetTimer <= 0f)
         {
@@ -188,6 +199,8 @@ private void Fire()
     }
 
 public string DisplayName => data != null && !string.IsNullOrEmpty(data.buildingName) ? data.buildingName : "Tower";
+
+public float Range => data != null ? data.range : 0f;
 
 public bool CanUpgradeToCannon => data.cannonUpgradeData != null;
     public int CannonUpgradeCost => data.cannonUpgradeData != null ? data.cannonUpgradeCost : 0;

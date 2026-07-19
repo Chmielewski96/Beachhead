@@ -41,6 +41,7 @@ public class SoldierAI : MonoBehaviour
     [SerializeField] private LayerMask enemyMask;
     [SerializeField] private float aggroRadius = 10f;
     [SerializeField] private int damage = 6;
+    public int Damage => damage;
     [SerializeField] private float attackRange = 1.2f;
     [SerializeField] private float attackCooldown = 0.9f;
     [Tooltip("Max distance from HOME (not from the target) a chase may stray before the soldier disengages. Soldiers defend a place, not a grudge.")]
@@ -68,6 +69,8 @@ public class SoldierAI : MonoBehaviour
     [SerializeField] private int kiteEveryShots = 2;
     [Tooltip("Flash color that fades IN over the aim, reaching full brightness right as the arrow looses, then cuts to zero.")]
     [SerializeField] private Color aimFlashColor = Color.white;
+    [Tooltip("Coyote time: once actually in range, a target that briefly steps back OUT of shootRange doesn't instantly cancel the aim and send the hunter chasing again - it gets this long, still standing and still aiming/shooting, before actually giving up and closing the gap. Tuned for exactly a stomping-gait boss: it pauses in range just long enough to draw fire, lurches a step out, then pauses again - without this, that lurch was resetting the aim every single cycle and the hunter could never actually loose a shot.")]
+    [SerializeField] private float rangeGraceTime = 0.6f;
 
     [Header("AoE Slash (optional - Guardian only, ignored otherwise)")]
     [Tooltip("If true, the melee hit becomes a small cone slash in front of the soldier instead of a single-target hit - damage still uses the same 'damage' field above, applied to everyone the cone catches.")]
@@ -103,6 +106,7 @@ public class SoldierAI : MonoBehaviour
     private float scanTimer;
     private float attackTimer;
     private float aimTimer;
+    private float rangeGraceTimer;
     private int shotsSinceKite;
     private bool isKiting; // true for the WHOLE retreat, not just the triggering frame
     private Coroutine swordSwingRoutine;
@@ -424,14 +428,30 @@ private void TickRanged(Vector3 closestPoint, float distance)
 
         // Too far to shoot - close the gap. (Note: this can't trigger for
         // a hunter that's merely close-but-not-kiting, since kiteDistance
-        // is always well under shootRange.)
+        // is always well under shootRange.) The grace timer means a BRIEF
+        // dip outside shootRange doesn't immediately reset the aim: it only
+        // actually breaks off and chases once the grace window has fully
+        // run out while still out of range. While in range, the timer just
+        // keeps refreshing to full, ready for the next dip.
         if (distance > shootRange)
         {
-            agent.isStopped = false;
-            agent.SetDestination(closestPoint);
-            aimTimer = aimDuration;
-            ClearAimFlash();
-            return;
+            rangeGraceTimer -= Time.deltaTime;
+            if (rangeGraceTimer <= 0f)
+            {
+                agent.isStopped = false;
+                agent.SetDestination(closestPoint);
+                aimTimer = aimDuration;
+                ClearAimFlash();
+                return;
+            }
+            // else: still within the grace window - fall through to the
+            // aim/shoot logic below exactly as if still in range. The
+            // arrow itself is a homing projectile, so loosing a shot while
+            // juuust outside shootRange is harmless; it'll still connect.
+        }
+        else
+        {
+            rangeGraceTimer = rangeGraceTime;
         }
 
         // In range (whether at the preferred distance or crowded and
@@ -563,6 +583,7 @@ private bool TryAcquireTarget()
         targetCollider = bestCollider;
         attackTimer = attackCooldown * 0.5f;
         aimTimer = aimDuration; // fresh engagement starts the glow at 0, not partway through
+        rangeGraceTimer = rangeGraceTime; // fresh engagement gets a full grace window, not a stale/expired one
         state = State.Attacking;
         return true;
     }

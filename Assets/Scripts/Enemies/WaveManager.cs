@@ -19,8 +19,13 @@ public class WaveManager : MonoBehaviour
     [SerializeField] private WaveData[] waves;
     [SerializeField] private Transform[] spawnPoints;
     [SerializeField] private float scatterRadius = 3f;
-    [Tooltip("Shell reward for starting a wave early - classic TD risk/reward.")]
-    [SerializeField] private int earlyStartShellBonus = 10;
+    [Header("Skip Build Phase Reward - scales with how early you skip, not a flat amount")]
+    [Tooltip("Flat MAX reward if skipped within this many seconds of the build phase starting.")]
+    [SerializeField] private float skipBonusEarlyWindow = 3f;
+    [SerializeField] private int skipBonusMaxShells = 20;
+    [Tooltip("Flat MIN reward if skipped within this many seconds of the build phase ending anyway.")]
+    [SerializeField] private float skipBonusLateWindow = 1f;
+    [SerializeField] private int skipBonusMinShells = 1;
 
     public Phase CurrentPhase { get; private set; } = Phase.Build;
     /// <summary>1-based number of the wave being prepared for or fought.</summary>
@@ -89,10 +94,47 @@ private void Update()
         if (CurrentPhase != Phase.Build)
             return;
 
-        if (ResourceManager.Instance != null && earlyStartShellBonus > 0)
-            ResourceManager.Instance.Add(ResourceType.Shells, earlyStartShellBonus);
+        if (ResourceManager.Instance != null)
+        {
+            int bonus = CalculateSkipBonus();
+            if (bonus > 0)
+                ResourceManager.Instance.Add(ResourceType.Shells, bonus);
+        }
 
         StartCombatPhase();
+    }
+
+    /// <summary>
+    /// Flat skipBonusMaxShells for the first skipBonusEarlyWindow seconds
+    /// of the build phase, flat skipBonusMinShells for the last
+    /// skipBonusLateWindow seconds, and a straight linear ramp between the
+    /// two everywhere in between - so skipping the instant the button
+    /// appears is worth meaningfully more than skipping with one second
+    /// left anyway, instead of both paying the same flat reward.
+    /// </summary>
+    private int CalculateSkipBonus()
+    {
+        float totalDuration = waves[waveIndex].buildPhaseDuration;
+        float elapsed = totalDuration - BuildTimeRemaining;
+
+        // Degenerate case: a wave too short for both windows to fit without
+        // overlapping - fall back to a single straight ramp across the
+        // whole duration rather than let InverseLerp see a shrunk/negative
+        // range.
+        if (totalDuration <= skipBonusEarlyWindow + skipBonusLateWindow)
+        {
+            float wholeRampT = totalDuration > 0f ? Mathf.Clamp01(elapsed / totalDuration) : 0f;
+            return Mathf.RoundToInt(Mathf.Lerp(skipBonusMaxShells, skipBonusMinShells, wholeRampT));
+        }
+
+        if (elapsed <= skipBonusEarlyWindow)
+            return skipBonusMaxShells;
+
+        if (BuildTimeRemaining <= skipBonusLateWindow)
+            return skipBonusMinShells;
+
+        float t = Mathf.InverseLerp(skipBonusEarlyWindow, totalDuration - skipBonusLateWindow, elapsed);
+        return Mathf.RoundToInt(Mathf.Lerp(skipBonusMaxShells, skipBonusMinShells, t));
     }
 
     private void BeginBuildPhase(int index)

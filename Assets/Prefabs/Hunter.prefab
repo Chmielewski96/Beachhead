@@ -361,6 +361,8 @@ GameObject:
   - component: {fileID: 7308606337959077702}
   - component: {fileID: 4525165316797721704}
   - component: {fileID: -1062441288491864690}
+  - component: {fileID: 4945647305430461070}
+  - component: {fileID: 4959840864631501947}
   m_Layer: 7
   m_Name: Hunter
   m_TagString: Untagged
@@ -555,6 +557,13 @@ MonoBehaviour:
   kiteStepDistance: 2.5
   kiteEveryShots: 2
   aimFlashColor: {r: 1, g: 1, b: 1, a: 1}
+  rangeGraceTime: 0.6
+  useAoeSlash: 0
+  slashRadius: 2.2
+  slashAngle: 100
+  swordPivot: {fileID: 0}
+  swordSwingAngle: 90
+  swordSwingDuration: 0.08
   defendAggroMultiplier: 0.6
   defendLeashDistance: 6
   toppleDuration: 0.4
@@ -571,6 +580,33 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: 4bf1da69eeaa24eee899365599f33b47, type: 3}
   m_Name: 
   m_EditorClassIdentifier: Assembly-CSharp::KnockbackReceiver
+--- !u!114 &4945647305430461070
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 3723640576916174473}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 10b158038e038447e9a78051a4d6a191, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: Assembly-CSharp::Unit
+  selectionRing: {fileID: 3208764823813238945}
+--- !u!114 &4959840864631501947
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 3723640576916174473}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 6df43dccc59634228b0db034ee2fdc49, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: Assembly-CSharp::UnitInfo
+  displayName: Hunter
+  abilityDescription: Ranged unit, every two shots looks for a safer position
 --- !u!1 &3829709203519149953
 GameObject:
   m_ObjectHideFlags: 0

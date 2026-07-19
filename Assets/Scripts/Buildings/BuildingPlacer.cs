@@ -168,11 +168,21 @@ public void StartPlacing(BuildingData data)
     /// </summary>
     private void ApplyRangeRingScale(GameObject ghostInstance)
     {
-        if (currentData is TowerData towerData)
+if (currentData is TowerData towerData)
         {
             Transform ring = ghostInstance.transform.Find("RangeRing");
             if (ring != null)
                 ring.localScale = new Vector3(towerData.range * 2f, ring.localScale.y, towerData.range * 2f);
+        }
+else if (currentData is GarrisonData garrisonData)
+        {
+            // Same ring, same scaling convention - commandRange (the Defend
+            // Point range) rather than patrolRadius, so the placement
+            // preview shows how far the garrison can later be ordered to
+            // defend a point, not its default patrol lap.
+            Transform ring = ghostInstance.transform.Find("RangeRing");
+            if (ring != null)
+                ring.localScale = new Vector3(garrisonData.commandRange * 2f, ring.localScale.y, garrisonData.commandRange * 2f);
         }
     }
 
